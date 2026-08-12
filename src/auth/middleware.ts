@@ -2,7 +2,7 @@ import { createMiddleware } from "hono/factory";
 import type { AppContext } from "../types";
 import { forbidden, unauthorized } from "../lib/http";
 import { findMemberById } from "../members/repo";
-import { clearSessionCookie, readSessionCookie, verifySession } from "./session";
+import { clearSessionCookie, readApplicantCookie, readSessionCookie, verifySession } from "./session";
 
 /**
  * Kräver en giltig session.
@@ -43,5 +43,18 @@ export const requireAdmin = createMiddleware<AppContext>(async (c, next) => {
   if (member.role !== "admin") {
     throw forbidden("Bara admins kan göra det här.", "admin_required");
   }
+  await next();
+});
+
+/**
+ * Kräver en giltig ansökningscookie, alltså en verifierad e-postadress som
+ * inte hör till någon medlem. Används bara av ansökningsformulärets endpoints.
+ */
+export const requireApplicant = createMiddleware<AppContext>(async (c, next) => {
+  const applicant = await readApplicantCookie(c);
+  if (!applicant) {
+    throw unauthorized("Verifiera din e-postadress först.", "applicant_required");
+  }
+  c.set("applicant", applicant);
   await next();
 });

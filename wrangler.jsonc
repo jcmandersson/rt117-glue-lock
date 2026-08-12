@@ -15,7 +15,7 @@
   },
 
   // Kopplar lock.rt117.se till Workern vid deploy (skapar DNS-post och cert
-  // automatiskt — zonen rt117.se måste ligga i samma Cloudflare-konto).
+  // automatiskt; zonen rt117.se måste ligga i samma Cloudflare-konto).
   "routes": [{ "pattern": "lock.rt117.se", "custom_domain": true }],
 
   "d1_databases": [
@@ -38,12 +38,11 @@
 
   // Publika, icke-hemliga inställningar. Ändra dessa här och committa.
   // Hemligheter (inklusive BOOTSTRAP_ADMIN_EMAILS) sätts som GitHub-secrets och
-  // synkas till Workern av .github/workflows/deploy.yml — se README.
+  // synkas till Workern av .github/workflows/deploy.yml, se README.
   "vars": {
     "APP_URL": "https://lock.rt117.se",
     "APP_NAME": "RT117/RT36 Lokalen",
     "MAIL_FROM": "RT117 Lokalen <no-reply@rt117.se>",
-    "GLUE_MOCK": "0",
-    "MEMBER_SOURCE": "admin"
+    "GLUE_MOCK": "0"
   }
 }

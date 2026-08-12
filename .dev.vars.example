@@ -19,7 +19,7 @@ BOOTSTRAP_ADMIN_EMAILS="din.adress@example.se"
 GOOGLE_CLIENT_ID=""
 GOOGLE_CLIENT_SECRET=""
 
-# E-post. Utan nyckel skickas inget mejl — koden skrivs i stället ut i
+# E-post. Utan nyckel skickas inget mejl, koden skrivs i stället ut i
 # `wrangler dev`-loggen, vilket är bekvämt lokalt.
 RESEND_API_KEY=""
 
@@ -31,9 +31,3 @@ GLUE_LOCK_ID=""
 # Turnstile (Cloudflares gratis-CAPTCHA). Lämna tomma för att stänga av botskyddet.
 TURNSTILE_SITE_KEY=""
 TURNSTILE_SECRET_KEY=""
-
-# tabler.world. Av som standard — verifiera sökväg och fältnamn först,
-# se src/members/tablerworld.ts.
-TABLERWORLD_TOKEN=""
-TABLERWORLD_CLUB_IDS=""
-TABLERWORLD_MEMBERS_PATH=""

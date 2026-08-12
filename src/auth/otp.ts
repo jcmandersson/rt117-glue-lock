@@ -18,18 +18,18 @@ async function hashCode(env: Env, identifier: string, code: string): Promise<str
 /**
  * Begär en engångskod.
  *
- * Svaret är alltid detsamma oavsett om adressen finns i medlemslistan. Två skäl:
- * utomstående ska inte kunna kartlägga vilka som är medlemmar, och vi vill inte
- * kunna luras att skicka mejl till adresser som inte finns i registret — det
- * skulle göra vårt Resend-konto till ett spamverktyg.
+ * Koden skickas till alla adresser, även sådana som inte finns i
+ * medlemslistan. Det är medvetet: den som verifierar en okänd adress hamnar i
+ * ansökningsflödet i stället för att nekas. Turnstile och taken nedan skyddar
+ * mot att någon använder oss som spamkanal.
  */
 export async function requestLoginCode(
   env: Env,
   email: string,
   ip: string,
 ): Promise<void> {
-  // Två tak: per adress (mot att spamma en broders inkorg) och per IP
-  // (mot att någon betar av hela medlemslistan).
+  // Två tak: per adress (mot att spamma någons inkorg) och per IP
+  // (mot att någon massutskickar koder från en och samma anslutning).
   await enforceRateLimit(
     env.DB,
     `otp:req:email:${email}`,
@@ -45,8 +45,8 @@ export async function requestLoginCode(
     "För många försök från din anslutning. Vänta en stund.",
   );
 
-  const member = await resolveMemberForLogin(env, email);
-  if (!member) return;
+  // Ser till att bootstrap-admins läggs in redan vid första kodbegäran.
+  await resolveMemberForLogin(env, email);
 
   const code = randomDigits(CODE_LENGTH);
   const ts = now();
@@ -72,17 +72,19 @@ export async function requestLoginCode(
 }
 
 /**
- * Kontrollerar en kod och returnerar medlemmen den hör till.
+ * Kontrollerar en kod och returnerar medlemmen den hör till, eller null om
+ * adressen är verifierad men inte tillhör någon medlem. Då tar
+ * ansökningsflödet vid.
  *
- * Felmeddelandet skiljer inte på "fel kod" och "ingen kod begärd" — annars går
- * det att avgöra vilka adresser som finns i registret.
+ * Felmeddelandet skiljer inte på "fel kod" och "ingen kod begärd", annars går
+ * det att avgöra vilka adresser som nyss försökt logga in.
  */
 export async function verifyLoginCode(
   env: Env,
   email: string,
   code: string,
   ip: string,
-): Promise<Member> {
+): Promise<Member | null> {
   await enforceRateLimit(
     env.DB,
     `otp:verify:ip:${ip}`,
@@ -126,8 +128,5 @@ export async function verifyLoginCode(
     .bind(now(), row.id)
     .run();
 
-  const member = await resolveMemberForLogin(env, email);
-  if (!member) throw invalid;
-
-  return member;
+  return resolveMemberForLogin(env, email);
 }

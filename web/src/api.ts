@@ -59,8 +59,24 @@ export interface Me {
     name: string | null;
     club: string | null;
     role: "member" | "admin";
+    validFrom: number | null;
+    validUntil: number | null;
   };
   mock: boolean;
+}
+
+export interface PendingApplication {
+  name: string;
+  club: string;
+  message: string | null;
+  createdAt: number;
+}
+
+export interface ApplyMe {
+  email: string;
+  name: string | null;
+  member: boolean;
+  pending: PendingApplication | null;
 }
 
 export type OperationStatus = "pending" | "completed" | "timeout" | "failed";
@@ -85,11 +101,25 @@ export interface AdminMember {
   name: string | null;
   club: string | null;
   role: "member" | "admin";
-  source: "admin" | "tablerworld";
   active: boolean;
+  validFrom: number | null;
+  validUntil: number | null;
+  notifyApplications: boolean;
   createdAt: number;
   lastLoginAt: number | null;
   notes: string | null;
+}
+
+export interface AdminApplication {
+  id: string;
+  email: string;
+  name: string;
+  club: string;
+  message: string | null;
+  via: "google" | "otp";
+  status: "pending" | "approved" | "rejected";
+  createdAt: number;
+  decidedAt: number | null;
 }
 
 export interface AuditEntry {
@@ -105,8 +135,6 @@ export interface AuditEntry {
 
 export interface AdminSettings {
   unlockEnabled: boolean;
-  memberSource: string;
-  tablerWorldConfigured: boolean;
 }
 
 // --- Anrop ---
@@ -119,7 +147,11 @@ export const api = {
   requestCode: (email: string, turnstileToken?: string) =>
     post<{ ok: true; message: string }>("/api/auth/otp/request", { email, turnstileToken }),
   verifyCode: (email: string, code: string) =>
-    post<{ ok: true }>("/api/auth/otp/verify", { email, code }),
+    post<{ ok: true; member: boolean; pending?: boolean }>("/api/auth/otp/verify", { email, code }),
+
+  applyMe: () => get<ApplyMe>("/api/apply/me"),
+  applySubmit: (input: { name: string; club: string; message: string | null }) =>
+    post<{ ok: true; pending: PendingApplication }>("/api/apply", input),
 
   lockStatus: () => get<LockStatus>("/api/lock/status"),
   unlock: () => post<{ operationId: string; status: OperationStatus; reason: string | null }>("/api/unlock"),
@@ -141,6 +173,14 @@ export const api = {
       "/api/admin/members/import",
       { csv, club },
     ),
+
+  adminApplications: (all = false) =>
+    get<{ applications: AdminApplication[] }>(`/api/admin/applications${all ? "?all=1" : ""}`),
+  adminApproveApplication: (id: string) =>
+    post<{ member: AdminMember }>(`/api/admin/applications/${id}/approve`),
+  adminRejectApplication: (id: string) =>
+    post<{ ok: true }>(`/api/admin/applications/${id}/reject`),
+
   adminAudit: (limit = 100) => get<{ entries: AuditEntry[] }>(`/api/admin/audit?limit=${limit}`),
   adminSettings: () => get<AdminSettings>("/api/admin/settings"),
   adminSetUnlockEnabled: (unlockEnabled: boolean) =>
@@ -148,12 +188,4 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ unlockEnabled }),
     }),
-  adminTablerWorldProbe: () =>
-    get<{ probe: { clubId: string; url: string; count: number; sampleKeys: string[] }[] }>(
-      "/api/admin/tablerworld/probe",
-    ),
-  adminTablerWorldSync: () =>
-    post<{ result: { created: number; updated: number; deactivated: number; skipped: number } }>(
-      "/api/admin/tablerworld/sync",
-    ),
 };

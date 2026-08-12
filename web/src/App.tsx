@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, type AppConfig, type Me } from "./api";
 import { navigate, usePathname } from "./router";
 import { LoginPage } from "./pages/LoginPage";
+import { ApplicationPage } from "./pages/ApplicationPage";
 import { UnlockPage } from "./pages/UnlockPage";
 import { AdminPage } from "./pages/AdminPage";
 
@@ -32,10 +33,11 @@ export function App() {
   }, [refreshMe]);
 
   // Skicka utloggade till inloggningssidan, och inloggade bort från den.
+  // /ansok är öppen för den som verifierat sin adress men inte är medlem.
   useEffect(() => {
     if (loading) return;
-    if (!me && pathname !== "/logga-in") navigate("/logga-in");
-    if (me && pathname === "/logga-in") navigate("/");
+    if (!me && pathname !== "/logga-in" && pathname !== "/ansok") navigate("/logga-in");
+    if (me && (pathname === "/logga-in" || pathname === "/ansok")) navigate("/");
   }, [loading, me, pathname]);
 
   if (loading) {
@@ -47,6 +49,9 @@ export function App() {
   }
 
   if (!me) {
+    if (pathname === "/ansok") {
+      return <ApplicationPage />;
+    }
     return <LoginPage config={config} onSignedIn={refreshMe} />;
   }
 

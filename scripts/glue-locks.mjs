@@ -48,9 +48,9 @@ for (const lock of locks) {
 
 console.log("");
 if (locks.length === 1) {
-  console.log("Ett lås — GLUE_LOCK_ID behöver inte sättas, men går bra att låsa fast:");
+  console.log("Ett lås. GLUE_LOCK_ID behöver inte sättas, men går bra att låsa fast:");
   console.log(`  npx wrangler secret put GLUE_LOCK_ID   # ${locks[0].id}`);
 } else {
-  console.log("Flera lås — sätt GLUE_LOCK_ID till rätt id:");
+  console.log("Flera lås. Sätt GLUE_LOCK_ID till rätt id:");
   console.log("  npx wrangler secret put GLUE_LOCK_ID");
 }

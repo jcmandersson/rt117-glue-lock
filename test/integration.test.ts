@@ -10,7 +10,7 @@ const BASE = "http://localhost:8787";
 async function signIn(overrides: { email: string; role?: "member" | "admin" }) {
   const member = await createMember(env.DB, {
     email: overrides.email,
-    name: "Testbroder",
+    name: "Testperson",
     club: "RT117",
     role: overrides.role ?? "member",
   });
@@ -48,7 +48,7 @@ let consoleWarn: ReturnType<typeof vi.spyOn>;
  *
  * Lagringen delas inom en testfil, så utan detta läcker tillstånd vidare:
  * nödstoppet från ett test slår ut nästa, och extra admins gör
- * sista-admin-skyddet overksamt. Schemat lämnas orört — bara raderna rensas.
+ * sista-admin-skyddet overksamt. Schemat lämnas orört, bara raderna rensas.
  */
 async function resetDatabase(): Promise<void> {
   await env.DB.batch([
@@ -58,6 +58,7 @@ async function resetDatabase(): Promise<void> {
     env.DB.prepare(`DELETE FROM rate_limits`),
     env.DB.prepare(`DELETE FROM audit_log`),
     env.DB.prepare(`DELETE FROM unlock_operations`),
+    env.DB.prepare(`DELETE FROM applications`),
     env.DB.prepare(`UPDATE settings SET value = '1' WHERE key = 'unlock_enabled'`),
   ]);
 }
@@ -98,12 +99,12 @@ describe("konfiguration och identitet", () => {
   });
 
   it("returnerar medlemmen med en giltig cookie", async () => {
-    const { cookie } = await signIn({ email: "broder@rt117.se" });
+    const { cookie } = await signIn({ email: "medlem@rt117.se" });
     const response = await jsonRequest("/api/me", { cookie });
     expect(response.status).toBe(200);
 
     const body = (await response.json()) as { member: { email: string; role: string } };
-    expect(body.member.email).toBe("broder@rt117.se");
+    expect(body.member.email).toBe("medlem@rt117.se");
     expect(body.member.role).toBe("member");
   });
 
@@ -130,16 +131,6 @@ describe("konfiguration och identitet", () => {
 });
 
 describe("inloggning med engångskod", () => {
-  it("skickar ingen kod till någon utanför medlemslistan, men avslöjar det inte", async () => {
-    const response = await jsonRequest("/api/auth/otp/request", {
-      method: "POST",
-      body: JSON.stringify({ email: "utomstaende@example.com" }),
-    });
-
-    expect(response.status).toBe(200);
-    expect(capturedCode()).toBeNull();
-  });
-
   it("lägger in en bootstrap-admin och loggar in med koden", async () => {
     const email = "chef@rt117.se"; // BOOTSTRAP_ADMIN_EMAILS i vitest.config.ts
 
@@ -157,6 +148,7 @@ describe("inloggning med engångskod", () => {
       body: JSON.stringify({ email, code }),
     });
     expect(verified.status).toBe(200);
+    expect((await verified.json() as { member: boolean }).member).toBe(true);
 
     // Sessionscookien ska vara HttpOnly och SameSite=Lax.
     const setCookie = verified.headers.get("Set-Cookie") ?? "";
@@ -235,6 +227,107 @@ describe("inloggning med engångskod", () => {
   });
 });
 
+describe("ansökningar", () => {
+  /** Kör hela vägen: kod till okänd adress, verifiering, ansökan. Returnerar ansökningscookien. */
+  async function applyAs(email: string, name: string, club: string, message?: string) {
+    await jsonRequest("/api/auth/otp/request", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    });
+    const code = capturedCode();
+    expect(code).toMatch(/^\d{6}$/);
+
+    const verified = await jsonRequest("/api/auth/otp/verify", {
+      method: "POST",
+      body: JSON.stringify({ email, code }),
+    });
+    expect(verified.status).toBe(200);
+    expect((await verified.json() as { member: boolean }).member).toBe(false);
+
+    const setCookie = verified.headers.get("Set-Cookie") ?? "";
+    const match = setCookie.match(/rt117_applicant=[^;]+/);
+    expect(match).not.toBeNull();
+    const cookie = match![0];
+
+    const applied = await jsonRequest("/api/apply", {
+      method: "POST",
+      cookie,
+      body: JSON.stringify({ name, club, message: message ?? null }),
+    });
+    expect(applied.status).toBe(200);
+
+    return cookie;
+  }
+
+  it("skickar kod till okända adresser och tar emot en ansökan", async () => {
+    const cookie = await applyAs("gast@example.com", "Gösta Gäst", "LC17", "Hyr lokalen i helgen");
+
+    // Formulärsidan ser den väntande ansökan.
+    const me = await jsonRequest("/api/apply/me", { cookie });
+    expect(me.status).toBe(200);
+    const body = (await me.json()) as { pending: { club: string } | null };
+    expect(body.pending?.club).toBe("LC17");
+  });
+
+  it("nekar ansökan utan verifierad adress", async () => {
+    const response = await jsonRequest("/api/apply", {
+      method: "POST",
+      body: JSON.stringify({ name: "Någon", club: "RT117" }),
+    });
+    expect(response.status).toBe(401);
+  });
+
+  it("godkännande skapar en aktiv medlem", async () => {
+    await applyAs("blivande@example.com", "Blivande Medlem", "OT36");
+
+    const admin = await signIn({ email: "beslutare@rt117.se", role: "admin" });
+    const list = await jsonRequest("/api/admin/applications", { cookie: admin.cookie });
+    const { applications } = (await list.json()) as { applications: { id: string }[] };
+    expect(applications).toHaveLength(1);
+
+    const approved = await jsonRequest(`/api/admin/applications/${applications[0]!.id}/approve`, {
+      method: "POST",
+      cookie: admin.cookie,
+    });
+    expect(approved.status).toBe(200);
+
+    const row = await env.DB
+      .prepare(`SELECT active, club, name FROM members WHERE email = ?`)
+      .bind("blivande@example.com")
+      .first<{ active: number; club: string; name: string }>();
+    expect(row?.active).toBe(1);
+    expect(row?.club).toBe("OT36");
+    expect(row?.name).toBe("Blivande Medlem");
+
+    // Samma ansökan kan inte avgöras två gånger.
+    const again = await jsonRequest(`/api/admin/applications/${applications[0]!.id}/reject`, {
+      method: "POST",
+      cookie: admin.cookie,
+    });
+    expect(again.status).toBe(404);
+  });
+
+  it("avslag skapar ingen medlem", async () => {
+    await applyAs("nekad@example.com", "Nekad Person", "Gäst");
+
+    const admin = await signIn({ email: "beslutare2@rt117.se", role: "admin" });
+    const list = await jsonRequest("/api/admin/applications", { cookie: admin.cookie });
+    const { applications } = (await list.json()) as { applications: { id: string }[] };
+
+    const rejected = await jsonRequest(`/api/admin/applications/${applications[0]!.id}/reject`, {
+      method: "POST",
+      cookie: admin.cookie,
+    });
+    expect(rejected.status).toBe(200);
+
+    const row = await env.DB
+      .prepare(`SELECT id FROM members WHERE email = ?`)
+      .bind("nekad@example.com")
+      .first();
+    expect(row).toBeNull();
+  });
+});
+
 describe("upplåsning", () => {
   it("kräver inloggning", async () => {
     const response = await jsonRequest("/api/unlock", { method: "POST" });
@@ -288,6 +381,37 @@ describe("upplåsning", () => {
     expect((await response.json() as { code: string }).code).toBe("unlock_disabled");
   });
 
+  it("nekar upplåsning efter slutdatumet men låter medlemmen logga in", async () => {
+    const { member, cookie } = await signIn({ email: "hyresgast@example.com" });
+    await env.DB
+      .prepare(`UPDATE members SET valid_until = ? WHERE id = ?`)
+      .bind(now() - 3600, member.id)
+      .run();
+
+    // Inloggningen fungerar och /api/me visar fönstret.
+    const me = await jsonRequest("/api/me", { cookie });
+    expect(me.status).toBe(200);
+    const meBody = (await me.json()) as { member: { validUntil: number | null } };
+    expect(meBody.member.validUntil).not.toBeNull();
+
+    // Men upplåsning är spärrad.
+    const response = await jsonRequest("/api/unlock", { method: "POST", cookie });
+    expect(response.status).toBe(403);
+    expect((await response.json() as { code: string }).code).toBe("outside_validity");
+  });
+
+  it("nekar upplåsning före startdatumet", async () => {
+    const { member, cookie } = await signIn({ email: "framtida@example.com" });
+    await env.DB
+      .prepare(`UPDATE members SET valid_from = ? WHERE id = ?`)
+      .bind(now() + 86400, member.id)
+      .run();
+
+    const response = await jsonRequest("/api/unlock", { method: "POST", cookie });
+    expect(response.status).toBe(403);
+    expect((await response.json() as { code: string }).code).toBe("outside_validity");
+  });
+
   it("låter inte en medlem läsa någon annans upplåsning", async () => {
     const first = await signIn({ email: "en@rt117.se" });
     const second = await signIn({ email: "tva@rt117.se" });
@@ -325,7 +449,7 @@ describe("administration", () => {
     const created = await jsonRequest("/api/admin/members", {
       method: "POST",
       cookie,
-      body: JSON.stringify({ email: "NY@rt36.se", name: "Ny Broder", club: "RT36" }),
+      body: JSON.stringify({ email: "NY@rt36.se", name: "Ny Medlem", club: "RT36" }),
     });
     expect(created.status).toBe(201);
     // E-posten ska ha normaliserats till gemener.
@@ -334,6 +458,58 @@ describe("administration", () => {
     const list = await jsonRequest("/api/admin/members", { cookie });
     const body = (await list.json()) as { members: { email: string }[] };
     expect(body.members.map((m) => m.email)).toContain("ny@rt36.se");
+  });
+
+  it("uppdaterar giltighet, klubb och mejlinställning", async () => {
+    const { cookie } = await signIn({ email: "adminx@rt117.se", role: "admin" });
+
+    const created = await jsonRequest("/api/admin/members", {
+      method: "POST",
+      cookie,
+      body: JSON.stringify({ email: "hyres@example.com" }),
+    });
+    const { member } = (await created.json()) as { member: { id: string } };
+
+    const from = now() + 3600;
+    const until = now() + 7200;
+    const patched = await jsonRequest(`/api/admin/members/${member.id}`, {
+      method: "PATCH",
+      cookie,
+      body: JSON.stringify({
+        validFrom: from,
+        validUntil: until,
+        club: "Snickeriet",
+        notifyApplications: false,
+      }),
+    });
+    expect(patched.status).toBe(200);
+
+    const body = (await patched.json()) as {
+      member: { validFrom: number; validUntil: number; club: string; notifyApplications: boolean };
+    };
+    expect(body.member.validFrom).toBe(from);
+    expect(body.member.validUntil).toBe(until);
+    expect(body.member.club).toBe("Snickeriet");
+    expect(body.member.notifyApplications).toBe(false);
+  });
+
+  it("avvisar ett bakvänt giltighetsfönster", async () => {
+    const { cookie } = await signIn({ email: "adminy@rt117.se", role: "admin" });
+
+    const created = await jsonRequest("/api/admin/members", {
+      method: "POST",
+      cookie,
+      body: JSON.stringify({ email: "bakvand@example.com" }),
+    });
+    const { member } = (await created.json()) as { member: { id: string } };
+
+    const response = await jsonRequest(`/api/admin/members/${member.id}`, {
+      method: "PATCH",
+      cookie,
+      body: JSON.stringify({ validFrom: now() + 7200, validUntil: now() + 3600 }),
+    });
+    expect(response.status).toBe(400);
+    expect((await response.json() as { code: string }).code).toBe("invalid_window");
   });
 
   it("avvisar dubbletter", async () => {
@@ -432,12 +608,5 @@ describe("administration", () => {
 
     const blocked = await jsonRequest("/api/unlock", { method: "POST", cookie });
     expect(blocked.status).toBe(503);
-  });
-
-  it("svarar tydligt när tabler.world inte är konfigurerat", async () => {
-    const { cookie } = await signIn({ email: "tw@rt117.se", role: "admin" });
-    const response = await jsonRequest("/api/admin/tablerworld/probe", { cookie });
-    expect(response.status).toBe(503);
-    expect((await response.json() as { code: string }).code).toBe("tablerworld_not_configured");
   });
 });

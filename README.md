@@ -1,35 +1,33 @@
 # rt117-glue-lock
 
-Lås upp RT117:s och RT36:s lokal i Linköping via hemsidan. Bröderna loggar in med
+Lås upp RT117:s och RT36:s lokal i Linköping via hemsidan. Medlemmar loggar in med
 Google eller en engångskod till e-posten, trycker på en knapp, och Glue-låset öppnas.
-Admins sköter medlemslistan i ett webbgränssnitt.
+Admins sköter medlemslistan i ett webbgränssnitt, och den som inte är medlem kan
+ansöka om åtkomst direkt på sidan.
 
 ## Status
-
-Repot var tomt (bara `README`, `LICENSE` och `.gitignore` från 2023) — hela systemet
-är byggt från grunden i den här omgången. Det som finns nu:
 
 | Del | Läge |
 | --- | --- |
 | Inloggning med Google (OAuth 2.0 + PKCE) | Klart, kräver OAuth-uppgifter |
 | Inloggning med engångskod till e-post | Klart, kräver Resend-nyckel |
 | Sessioner, återkallning, utloggning | Klart |
-| Upplåsning mot Glue + statuspollning | Klart, kräver API-nyckel — går i simulerat läge tills dess |
-| Admin: lägg in, pausa, ta bort, ändra roll | Klart |
+| Upplåsning mot Glue + statuspollning | Klart, kräver API-nyckel. Går i simulerat läge tills dess |
+| Ansökningar: icke-medlemmar kan ansöka, admins godkänner | Klart |
+| Datumbegränsad åtkomst (uthyrning) | Klart |
+| Admin: lägg in, redigera, pausa, ta bort, ändra roll | Klart |
 | Admin: importera medlemmar från urklipp | Klart |
 | Revisionslogg (vem loggade in, vem låste upp) | Klart |
 | Nödstopp som stänger av upplåsning | Klart |
 | Hastighetsbegränsning och botskydd | Klart, Turnstile valfritt |
-| tabler.world-synk | Byggd men **avstängd** — se [tabler.world](#tablerworld) |
-| SMS-koder | Ej byggt (du valde bort det). `phone` finns i databasen så det går att lägga på |
+| SMS-koder | Ej byggt. `phone` finns i databasen så det går att lägga på |
 
-42 tester passerar (`npm test`), typkontrollen är grön och Workern bundlar till
-**32 KiB gzippat** — långt under Workers free tier-gräns på 3 MiB.
+48 tester passerar (`npm test`) och typkontrollen är grön.
 
 ### Vad som återstår innan det fungerar på riktigt
 
 Allt nedan är konto- och konfigurationsarbete, ingen kodning. Deployen är
-automatisk — det handlar om att mata in nycklar (§ [Driftsättning](#driftsättning)):
+automatisk, det handlar om att mata in nycklar (se [Driftsättning](#driftsättning)):
 
 1. Lägg in `CLOUDFLARE_API_TOKEN` och `CLOUDFLARE_ACCOUNT_ID` som GitHub-secrets.
    Därefter deployar varje push till `main` av sig själv.
@@ -38,17 +36,16 @@ automatisk — det handlar om att mata in nycklar (§ [Driftsättning](#driftsä
 3. Hämta en Glue-API-nyckel och peka ut rätt lås.
 4. Skapa en Google OAuth-klient.
 5. Verifiera avsändardomän hos Resend och lägg DNS-poster på `rt117.se`.
-6. Peka `lock.rt117.se` mot Workern.
-7. Lägg in resten av bröderna via adminsidan.
-8. Låt någon titta på GDPR-frågan (§ [Personuppgifter](#personuppgifter)).
+6. Lägg in resten av medlemmarna via adminsidan.
+7. Låt någon titta på GDPR-frågan (se [Personuppgifter](#personuppgifter)).
 
 ## Så fungerar det
 
 ```
-Broderns telefon
+Medlemmens telefon
       │  https://lock.rt117.se
       ▼
-Cloudflare Worker (Hono)  ──►  D1 (medlemmar, koder, logg)
+Cloudflare Worker (Hono)  ──►  D1 (medlemmar, ansökningar, koder, logg)
       │
       │  Authorization: Api-Key …
       ▼
@@ -56,9 +53,8 @@ Glue Homes moln  ──►  Glue Hub i lokalen  ──(Bluetooth)──►  Lås
 ```
 
 Det viktiga i den bilden: **upplåsningen går via Glues moln, inte via lokalen.**
-Sidan ligger hos Cloudflare och behöver inget öppet nätverk i lokalen — men hubben
-som sitter i lokalen måste ha internet för att kunna ta emot kommandot. Det var
-precis det som blockerade projektet tidigare.
+Sidan ligger hos Cloudflare och behöver inget öppet nätverk i lokalen, men hubben
+som sitter i lokalen måste ha internet för att kunna ta emot kommandot.
 
 Glue-API:t vi anropar:
 
@@ -76,6 +72,30 @@ Upplåsningen är tvåstegs: `POST /api/unlock` skapar operationen och svarar di
 sedan pollar frontenden `GET /api/unlock/:id`. Det gör att inget anrop hänger medan
 låset snurrar, vilket håller sig gott inom Workers gränser.
 
+### Ansökningsflödet
+
+Den som loggar in med en adress som inte finns i medlemslistan nekas inte längre.
+I stället händer detta:
+
+1. Personen verifierar sin e-postadress, med Google eller med en engångskod.
+2. En kortlivad, signerad ansökningscookie utfärdas. Den ger bara tillgång till
+   ansökningsformuläret, inget annat.
+3. Personen fyller i namn, klubb (RT117, RT36, OT117, OT36, LC17, LC76, LC166,
+   Gäst eller fritext via Annan) och ett valfritt meddelande.
+4. Admins med mejlnotiser påslagna får ett mejl, och ansökan dyker upp på
+   adminsidans flik Ansökningar.
+5. Vid godkännande skapas medlemmen och personen får ett välkomstmejl. Vid avslag
+   skickas ett neutralt besked. Varje admin kan stänga av ansökningsmejlen för
+   egen del i redigeringsdialogen.
+
+### Datumbegränsad åtkomst
+
+Varje medlem kan ha ett startdatum och ett slutdatum, tänkt för uthyrning och
+tillfälliga gäster. Utanför fönstret går det fortfarande att logga in, så att en
+hyresgäst kan kontrollera att inloggningen fungerar i förväg, men
+upplåsningsknappen är spärrad och servern nekar med ett tydligt meddelande.
+Slutdatumet gäller hela dagen ut.
+
 ### Kodkarta
 
 ```
@@ -84,16 +104,16 @@ src/
   types.ts              Env-bindningar och delade typer
   lib/                  crypto, normalisering, rate limiting, e-post, logg, inställningar
   auth/
-    session.ts          Signerad sessionscookie (HMAC-SHA256)
+    session.ts          Signerade cookies: session + ansökan (HMAC-SHA256)
     google.ts           OAuth 2.0 + PKCE
     otp.ts              Engångskoder
-    middleware.ts       requireMember / requireAdmin
+    middleware.ts       requireMember / requireAdmin / requireApplicant
   members/
-    repo.ts             CRUD mot D1
-    source.ts           Medlemskälla bakom ett interface + bootstrap-admin
-    tablerworld.ts      tabler.world-koppling (avstängd som standard)
+    repo.ts             CRUD mot D1, giltighetsfönster
+    source.ts           Uppslag vid inloggning + bootstrap-admin
+  applications/repo.ts  Ansökningar: skapa, lista, avgöra
   glue/client.ts        Glue-klient + mock
-  routes/               auth, unlock, admin
+  routes/               auth, apply, unlock, admin
 web/                    React-frontend (Vite)
 migrations/             D1-schema
 scripts/                Glue-nyckel, låslista, hemligheter
@@ -101,14 +121,15 @@ scripts/                Glue-nyckel, låslista, hemligheter
 
 ## Kostnad
 
-Allt ligger inom gratisnivåer. Kontrollera aktuella gränser hos leverantörerna —
-de ändras då och då — men i grova drag:
+Allt ligger inom gratisnivåer. Kontrollera aktuella gränser hos leverantörerna,
+de ändras då och då, men i grova drag:
 
-- **Cloudflare Workers**: 100 000 anrop/dygn. En klubb med ett femtiotal bröder
+- **Cloudflare Workers**: 100 000 anrop/dygn. En klubb med ett femtiotal medlemmar
   landar på några hundra.
 - **Cloudflare D1**: gott och väl inom gratisnivån för den här datamängden.
 - **Cloudflare Turnstile**: gratis.
-- **Resend**: 100 mejl/dygn, 3 000/månad. Engångskoder för en klubb ligger långt under.
+- **Resend**: 100 mejl/dygn, 3 000/månad. Engångskoder och ansökningsnotiser för
+  en klubb ligger långt under.
 
 ## Kom igång lokalt
 
@@ -123,18 +144,21 @@ npm run dev                  # Vite på :5173, Worker på :8787
 Öppna http://localhost:5173. Sätt din egen adress i `BOOTSTRAP_ADMIN_EMAILS` i
 `.dev.vars` så läggs du in som admin första gången du loggar in.
 
-Lokalt behövs ingen riktig D1-databas — `--local` använder en SQLite-fil, och
+Lokalt behövs ingen riktig D1-databas: `--local` använder en SQLite-fil, och
 platshållaren för `database_id` i `wrangler.jsonc` duger. Den riktiga databasen
 skapas automatiskt vid första deployen.
 
-Utan `RESEND_API_KEY` skickas inga mejl — **engångskoden skrivs i stället ut i
+Utan `RESEND_API_KEY` skickas inga mejl. **Engångskoden skrivs i stället ut i
 `wrangler dev`-loggen**, vilket är det bekväma sättet att testa lokalt. Utan
 `GLUE_API_KEY` körs ett simulerat lås som beter sig som det riktiga.
 
 ```bash
-npm test          # 42 tester
+npm test          # 48 tester
 npm run typecheck
 ```
+
+Testerna nollar alltid mejl-, Google- och Glue-nycklarna (se `vitest.config.ts`),
+så de når aldrig riktiga tjänster även om `.dev.vars` har skarpa värden.
 
 ## Driftsättning
 
@@ -144,10 +168,10 @@ Pull requests kör bara testerna, inget deployas.
 
 Varje körning gör detta i ordning:
 
-1. Typkontroll och tester — misslyckas de deployas ingenting
+1. Typkontroll och tester. Misslyckas de deployas ingenting
 2. Skapar D1-databasen om den inte finns, och pekar konfigurationen på den
 3. Kör databasmigrationer
-4. Bygger frontenden och deployar Workern
+4. Bygger frontenden och deployar Workern, inklusive domänkopplingen
 5. Synkar hemligheterna från GitHub till Workern
 6. Kontrollerar att sidan svarar (fäller inte deployen om DNS inte är klart)
 
@@ -172,32 +196,29 @@ New repository secret**:
 ### Steg 2: Mata in nycklarna
 
 Alla i samma GitHub-vy. Tomma eller saknade hoppas över, så du kan lägga till
-dem en och en — inget raderas för att det inte är ifyllt ännu.
+dem en och en. Inget raderas för att det inte är ifyllt ännu.
 
 | Secret | Krävs | Var du får det |
 | --- | --- | --- |
 | `SESSION_SECRET` | **Ja** | `npm run secrets:gen` |
 | `OTP_PEPPER` | **Ja** | `npm run secrets:gen` |
 | `BOOTSTRAP_ADMIN_EMAILS` | **Ja, till att börja med** | Din egen adress. Flera går att komma, kommaseparerat |
-| `RESEND_API_KEY` | För engångskoder | [resend.com](https://resend.com) → API Keys |
+| `RESEND_API_KEY` | För engångskoder och ansökningsmejl | [resend.com](https://resend.com) → API Keys |
 | `GOOGLE_CLIENT_ID` | För Google-inloggning | Google Cloud Console (se nedan) |
 | `GOOGLE_CLIENT_SECRET` | För Google-inloggning | Samma ställe |
 | `GLUE_API_KEY` | För att öppna på riktigt | `npm run glue:api-key` |
 | `GLUE_LOCK_ID` | Bara om ni har flera lås | `npm run glue:locks` |
 | `TURNSTILE_SITE_KEY` | Nej | Cloudflare → Turnstile |
 | `TURNSTILE_SECRET_KEY` | Nej | Samma ställe |
-| `TABLERWORLD_TOKEN` | Nej | OVF/RTI, se [tabler.world](#tablerworld) |
-| `TABLERWORLD_CLUB_IDS` | Nej | Klubb-id för RT117 och RT36 |
-| `TABLERWORLD_MEMBERS_PATH` | Nej | Bara om standardsökvägen är fel |
 
-Utan `SESSION_SECRET` och `OTP_PEPPER` avbryts deployen med ett tydligt fel —
+Utan `SESSION_SECRET` och `OTP_PEPPER` avbryts deployen med ett tydligt fel,
 ingen skulle kunna logga in ändå. Saknas `GLUE_API_KEY` deployas systemet i
 **simulerat läge**: allt fungerar utom att ingen dörr faktiskt öppnas. Det är
 avsiktligt, så du kan testa hela flödet innan låset är inkopplat.
 
 `BOOTSTRAP_ADMIN_EMAILS` är det som gör att du kommer in i ett tomt system:
 adresser i listan läggs in och befordras till admin vid inloggning. Töm gärna
-den när bröderna är inlagda.
+den när medlemmarna är inlagda.
 
 De två skripten går att köra lokalt också, om du vill:
 
@@ -219,18 +240,16 @@ skapa en OAuth-klient av typen **Web application**:
 
 **E-post.** Verifiera `rt117.se` som avsändardomän hos
 [Resend](https://resend.com/domains). Resend visar exakt vilka DNS-poster som ska
-in — normalt en DKIM-post (`TXT`), en post för returadressen och gärna SPF.
+in, normalt en DKIM-post (`TXT`), en post för returadressen och gärna SPF.
 **Kopiera värdena från Resends gränssnitt**, de är unika per konto.
 
-### Steg 4: Peka adressen mot Workern
+### Domänen
 
-I Cloudflare-dashboarden: **Workers & Pages → rt117-glue-lock → Settings →
-Domains & Routes → Add custom domain**, och ange `lock.rt117.se`. Ligger
-`rt117.se` inte redan i Cloudflare behöver zonen flyttas dit.
-
-Uppdatera sedan `APP_URL` i `wrangler.jsonc` om adressen blev en annan än
-`https://lock.rt117.se` och committa — den styr Googles redirect-URI, och stämmer
-den inte slutar återhoppet fungera.
+`wrangler.jsonc` kopplar `lock.rt117.se` som custom domain vid varje deploy
+(`routes` med `custom_domain: true`). Det kräver att zonen `rt117.se` ligger i
+samma Cloudflare-konto. Byter ni adress: uppdatera både `routes` och `APP_URL`
+och committa. `APP_URL` styr Googles redirect-URI, stämmer den inte slutar
+återhoppet fungera.
 
 ### Inställningar som inte är hemliga
 
@@ -242,7 +261,6 @@ Dessa bor i `wrangler.jsonc` och ändras genom att committa:
 | `APP_NAME` | Visas i gränssnittet och i mejlen |
 | `MAIL_FROM` | Avsändare, måste ligga på den verifierade domänen |
 | `GLUE_MOCK` | `"1"` tvingar simulerat läge även med API-nyckel |
-| `MEMBER_SOURCE` | `"admin"` eller `"tablerworld"` |
 
 ### Manuell deploy
 
@@ -257,79 +275,58 @@ npm run deploy
 
 ## Administrera medlemmar
 
-Adminsidan ligger på `/admin` och har fyra flikar:
+Adminsidan ligger på `/admin` och har fem flikar:
 
-- **Medlemmar** — lägg in en åt gången, pausa, ta bort, gör till admin. Att pausa
-  eller degradera någon dödar deras inloggningar direkt.
-- **Importera** — klistra in flera rader: `epost;namn;klubb;telefon`. Semikolon,
+- **Medlemmar**: lägg in en åt gången, redigera alla uppgifter (namn, e-post,
+  telefon, klubb, roll, giltighetsdatum, anteckningar), pausa eller ta bort. Att
+  pausa eller degradera någon dödar deras inloggningar direkt. Start- och
+  slutdatum används för uthyrning: personen kan logga in men bara låsa upp inom
+  sitt fönster.
+- **Ansökningar**: godkänn eller avslå den som bett om åtkomst. Godkännande
+  skapar medlemmen direkt och mejlar personen.
+- **Importera**: klistra in flera rader, `epost;namn;klubb;telefon`. Semikolon,
   komma och tabb fungerar som avgränsare, så det går att klistra rakt från Excel
   eller Google Sheets. Rubrikrad hoppas över. Bara e-post är obligatoriskt.
-- **Logg** — de senaste 200 händelserna: vem loggade in, vem låste upp, vad admins
+- **Logg**: de senaste 200 händelserna. Vem loggade in, vem låste upp, vad admins
   ändrade.
-- **Inställningar** — nödstoppet, och tabler.world.
+- **Inställningar**: nödstoppet.
 
 E-postadressen är nyckeln: den matchas mot Google-kontots adress eller mot den
 adress engångskoden skickas till. Telefonnummer sparas men används inte för
 inloggning ännu.
 
-Systemet vägrar lämna dig utan admin — sista aktiva adminen går inte att degradera,
+Systemet vägrar lämna dig utan admin. Sista aktiva adminen går inte att degradera,
 avaktivera eller ta bort.
-
-## tabler.world
-
-Kopplingen är byggd men **avstängd som standard**, av tre skäl:
-
-1. **Token.** Andra endpoints än ens egen profil kräver ett `global_auth_token`
-   som beviljas av OVF/RTI. Det är inte något som går att ordna från koden.
-2. **Overifierade detaljer.** Bas-URL (`https://api.roundtable.world/v1/app`) och
-   att autentiseringen sker med en token i `Authorization`-headern är bekräftat.
-   Det exakta ändpunktsnamnet för "medlemmar i en klubb" och fältnamnen i svaret
-   är däremot **[verify]** — de står i dokumentationen på
-   <https://developer.roundtable.world/>, som var blockerad från miljön där koden
-   skrevs. Därför är sökvägen konfigurerbar (`TABLERWORLD_MEMBERS_PATH`, med
-   `{clubId}` som platshållare) och fältmappningen tolerant mot olika namn.
-3. **Personuppgifter.** Se nedan.
-
-Så här verifierar du utan att skriva något till databasen:
-
-```bash
-npx wrangler secret put TABLERWORLD_TOKEN
-npx wrangler secret put TABLERWORLD_CLUB_IDS      # id för RT117 och RT36, kommaseparerat
-```
-
-Gå sedan till Inställningar → **Testanrop**. Det visar vilken URL som anropades,
-hur många rader som hittades och vilka fältnamn första raden har. Stämmer det inte
-— justera `TABLERWORLD_MEMBERS_PATH` och testa igen. Först när testanropet ser rätt
-ut är det läge att köra **Synka nu**.
-
-Synken rör aldrig manuellt inlagda medlemmar. Bröder som försvunnit uppströms
-avaktiveras (raderas inte) och tappar sina sessioner.
 
 ## Säkerhet
 
 Det här öppnar en fysisk dörr, så några val är värda att förklara:
 
-- **Ingen kontoregistrering.** Man kan bara logga in om adressen redan finns i
-  medlemslistan. Google-inloggning kräver dessutom att adressen är verifierad hos
-  Google, annars skulle någon kunna registrera ett konto på en broders adress.
-- **Vi avslöjar inte vilka som är medlemmar.** Att begära en kod ger samma svar
-  oavsett om adressen finns eller inte. Det hindrar kartläggning av medlemslistan,
-  och gör att ingen kan använda oss för att skicka mejl till valfri adress.
+- **Ingen fri kontoregistrering.** Att verifiera en okänd adress ger bara
+  tillgång till ansökningsformuläret. In i lokalen kommer man först när en admin
+  godkänt ansökan.
+- **Verifierad e-post krävs.** Google-inloggning kräver att adressen är
+  verifierad hos Google, och engångskoden bevisar att personen läser inkorgen.
+  Ingen kan ansöka i någon annans namn utan tillgång till adressen.
 - **Koderna lagras aldrig i klartext** utan som HMAC med en separat hemlighet
   (`OTP_PEPPER`), bundna till adressen. Fem felförsök förbrukar koden, och en ny
   kod ogiltigförklarar den förra.
-- **Behörighet läses om vid varje anrop.** En pausad eller borttagen broder är ute
-  omedelbart, inte när cookien råkar gå ut.
-- **Allt loggas.** Varje inloggning och upplåsning hamnar i revisionsloggen med
-  tidpunkt och IP.
+- **Ansökningscookien är avgränsad.** Egen HMAC-namnrymd skild från sessionerna,
+  45 minuters livslängd, och ger bara rätt att skicka in formuläret.
+- **Behörighet läses om vid varje anrop.** En pausad eller borttagen medlem är
+  ute omedelbart, inte när cookien råkar gå ut.
+- **Allt loggas.** Varje inloggning, ansökan och upplåsning hamnar i
+  revisionsloggen med tidpunkt och IP.
 - **Nödstopp.** En admin kan stänga av all upplåsning direkt, utan att deploya om.
-- **Hastighetsbegränsning** på kodutskick, kodförsök och upplåsningar — både per
-  person och globalt, så ett skenande fel inte kan mala mot Glue-kontot.
+- **Hastighetsbegränsning** på kodutskick, kodförsök, ansökningar och
+  upplåsningar, både per person och globalt, så ett skenande fel inte kan mala
+  mot Glue-kontot. Turnstile kan slås på ovanpå detta.
 - **Konstant-tidsjämförelser** för signaturer och koder.
 
-Jämförelser sker i konstant tid, men det är värt att veta att en Worker aldrig kan
-ge fullständiga garantier mot mycket finkorniga tidsattacker. För det här
-hotbilden — en klubbdörr — är det gott nog.
+En avvägning att känna till: eftersom vem som helst kan begära en engångskod
+(det är så ansökningsflödet startar) går det i princip att lista ut om en adress
+är medlem genom att verifiera den och se vart man hamnar. Det kräver dock
+tillgång till adressens inkorg, vilket vi bedömer som gott nog för en klubbdörr.
 
 ## Personuppgifter
 
@@ -338,13 +335,13 @@ personuppgifter, och några punkter förtjänar ett medvetet beslut snarare än 
 standardinställning:
 
 - Revisionsloggen kopplar en namngiven person till en tidpunkt och en plats. Den
-  gallras efter **365 dagar** och upplåsningshistoriken efter **90 dagar**
-  (`RETENTION` i `src/index.ts`). Det är ett förslag, inte ett juridiskt
-  ställningstagande — bestäm vad som är rimligt och ändra siffrorna.
+  gallras efter **365 dagar**, upplåsningshistoriken efter **90 dagar** och
+  avgjorda ansökningar efter **180 dagar** (`RETENTION` i `src/index.ts`). Det är
+  ett förslag, inte ett juridiskt ställningstagande. Bestäm vad som är rimligt
+  och ändra siffrorna.
+- Ansökningar innehåller namn, e-post och fritext som personen själv skrivit.
 - Rättslig grund för behandlingen behöver fastställas, liksom vem som är
   personuppgiftsansvarig (rimligen föreningen).
-- Att hämta hem bröders e-post och telefonnummer från tabler.world är en
-  utökad behandling som förtjänar ett eget beslut.
 - Cloudflare och Resend är personuppgiftsbiträden.
 
 ## Felsökning
@@ -354,13 +351,14 @@ standardinställning:
 | "Simulerat läge" syns på sidan | `GLUE_API_KEY` saknas eller `GLUE_MOCK` är `"1"` |
 | Låset svarar inte i tid | Hubben i lokalen saknar internet, eller låset är offline. Kolla batteri och uppkoppling på startsidan |
 | Google-inloggningen kastar tillbaka ett fel | `APP_URL` stämmer inte med den riktiga adressen, eller redirect-URI:n är inte registrerad i Google Cloud Console |
-| Ingen kod kommer fram | Adressen finns inte i medlemslistan (vi säger inte det i gränssnittet — kolla i admin), eller domänen är inte verifierad hos Resend |
-| "Den e-postadressen finns inte i medlemslistan" vid Google-inloggning | Google-kontots adress skiljer sig från den inlagda |
+| Ingen kod kommer fram | Domänen är inte verifierad hos Resend, eller mejlet fastnade i skräpposten |
+| Medlem hamnar på ansökningssidan | Google-kontots adress skiljer sig från den som är inlagd i medlemslistan |
+| Upplåsningsknappen är spärrad med datummeddelande | Medlemmens giltighetsfönster har inte börjat eller har gått ut. Ändra under Medlemmar → Redigera |
 | Allt ger 429 | Hastighetsbegränsningen slog till. Vänta, eller töm `rate_limits` i D1 |
 | Deployen stannar på "Kontrollera Cloudflare-uppgifter" | `CLOUDFLARE_API_TOKEN` eller `CLOUDFLARE_ACCOUNT_ID` saknas som GitHub-secret |
 | Deployen stannar på "Synka hemligheter" | `SESSION_SECRET` eller `OTP_PEPPER` saknas. Generera med `npm run secrets:gen` |
 | Deployen klagar på D1-behörighet | API-token saknar **Account → D1 → Edit** |
-| Sista steget blir gult | Sidan svarade inte — oftast bara att DNS inte pekar rätt än. Deployen gick ändå igenom |
+| Sista steget blir gult | Sidan svarade inte, oftast bara att DNS inte pekar rätt än. Deployen gick ändå igenom |
 
 Loggar i realtid:
 

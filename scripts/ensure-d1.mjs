@@ -6,7 +6,7 @@
  *
  * Databasens id är kontospecifikt och kan inte checkas in i förväg. I stället
  * slår vi upp det vid deploy: finns databasen används den, annars skapas den.
- * Sedan skrivs id:t in i wrangler.jsonc i arbetskopian — den ändringen är
+ * Sedan skrivs id:t in i wrangler.jsonc i arbetskopian. Den ändringen är
  * avsedd att inte committas, den behövs bara för `wrangler deploy`.
  */
 

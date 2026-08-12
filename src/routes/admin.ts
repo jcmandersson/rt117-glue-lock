@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { AppContext, Member, MemberRole } from "../types";
+import type { Application, AppContext, Member, MemberRole } from "../types";
 import { AppError, badRequest, clientIp, readJson, requireString, userAgent } from "../lib/http";
 import { normalizeEmail, normalizePhone } from "../lib/normalize";
 import { audit } from "../lib/audit";
@@ -9,13 +9,14 @@ import {
   countAdmins,
   createMember,
   deleteMember,
+  findMemberByEmail,
   findMemberById,
   listMembers,
   revokeMemberSessions,
   updateMember,
 } from "../members/repo";
-import { syncMembers } from "../members/source";
-import { TablerWorldSource } from "../members/tablerworld";
+import { decideApplication, findApplicationById, listApplications } from "../applications/repo";
+import { sendApplicationApproved, sendApplicationRejected } from "../lib/email";
 
 export const adminRoutes = new Hono<AppContext>();
 
@@ -30,11 +31,27 @@ function present(member: Member) {
     name: member.name,
     club: member.club,
     role: member.role,
-    source: member.source,
     active: member.active === 1,
+    validFrom: member.valid_from,
+    validUntil: member.valid_until,
+    notifyApplications: member.notify_applications === 1,
     createdAt: member.created_at,
     lastLoginAt: member.last_login_at,
     notes: member.notes,
+  };
+}
+
+function presentApplication(application: Application) {
+  return {
+    id: application.id,
+    email: application.email,
+    name: application.name,
+    club: application.club,
+    message: application.message,
+    via: application.via,
+    status: application.status,
+    createdAt: application.created_at,
+    decidedAt: application.decided_at,
   };
 }
 
@@ -76,6 +93,28 @@ function parseIdentifiers(body: { email?: unknown; phone?: unknown }): {
   return out;
 }
 
+/**
+ * Läser ett giltighetsdatum ur en request. undefined betyder "rör inte",
+ * null eller tom sträng betyder "ta bort gränsen".
+ */
+function parseTimestamp(value: unknown, field: string): number | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
+
+  const ts = Number(value);
+  if (!Number.isInteger(ts) || ts < 0 || ts > 4_102_444_800) {
+    throw badRequest(`Fältet "${field}" måste vara en tidpunkt i unix-sekunder.`, "invalid_timestamp");
+  }
+  return ts;
+}
+
+/** Start före slut, annars blir åtkomstfönstret omöjligt att uppfylla. */
+function assertValidWindow(from: number | null, until: number | null): void {
+  if (from !== null && until !== null && from > until) {
+    throw badRequest("Startdatumet måste ligga före slutdatumet.", "invalid_window");
+  }
+}
+
 // --- Medlemmar ---
 
 adminRoutes.get("/api/admin/members", async (c) => {
@@ -92,6 +131,10 @@ adminRoutes.post("/api/admin/members", async (c) => {
     throw badRequest("Ange e-postadress eller telefonnummer.", "missing_identifier");
   }
 
+  const validFrom = parseTimestamp(body.validFrom, "validFrom") ?? null;
+  const validUntil = parseTimestamp(body.validUntil, "validUntil") ?? null;
+  assertValidWindow(validFrom, validUntil);
+
   const member = await createMember(c.env.DB, {
     email: email ?? null,
     phone: phone ?? null,
@@ -99,7 +142,8 @@ adminRoutes.post("/api/admin/members", async (c) => {
     club: body.club ? String(body.club).trim().slice(0, 60) : null,
     role: parseRole(body.role) ?? "member",
     notes: body.notes ? String(body.notes).slice(0, 1000) : null,
-    source: "admin",
+    validFrom,
+    validUntil,
   });
 
   await audit(c.env.DB, {
@@ -138,6 +182,13 @@ adminRoutes.patch("/api/admin/members/:id", async (c) => {
 
   const { email, phone } = parseIdentifiers(body);
 
+  const validFrom = parseTimestamp(body.validFrom, "validFrom");
+  const validUntil = parseTimestamp(body.validUntil, "validUntil");
+  assertValidWindow(
+    validFrom === undefined ? target.valid_from : validFrom,
+    validUntil === undefined ? target.valid_until : validUntil,
+  );
+
   const member = await updateMember(c.env.DB, id, {
     ...(email !== undefined ? { email } : {}),
     ...(phone !== undefined ? { phone } : {}),
@@ -152,6 +203,11 @@ adminRoutes.patch("/api/admin/members/:id", async (c) => {
       ? { notes: body.notes === null ? null : String(body.notes).slice(0, 1000) }
       : {}),
     ...(active !== undefined ? { active } : {}),
+    ...(validFrom !== undefined ? { validFrom } : {}),
+    ...(validUntil !== undefined ? { validUntil } : {}),
+    ...(body.notifyApplications !== undefined
+      ? { notifyApplications: Boolean(body.notifyApplications) }
+      : {}),
   });
 
   // Tas behörigheten bort ska befintliga inloggningar dö direkt.
@@ -265,7 +321,6 @@ adminRoutes.post("/api/admin/members/import", async (c) => {
         name: cells[1] || null,
         club: cells[2] || defaultClub,
         role: "member",
-        source: "admin",
       });
       created.push(email);
     } catch (error) {
@@ -289,6 +344,91 @@ adminRoutes.post("/api/admin/members/import", async (c) => {
   });
 
   return c.json({ created: created.length, skipped });
+});
+
+// --- Ansökningar ---
+
+adminRoutes.get("/api/admin/applications", async (c) => {
+  const all = c.req.query("all") === "1";
+  const applications = await listApplications(c.env.DB, all ? {} : { status: "pending" });
+  return c.json({ applications: applications.map(presentApplication) });
+});
+
+adminRoutes.post("/api/admin/applications/:id/approve", async (c) => {
+  const actor = c.get("member");
+  const id = c.req.param("id");
+
+  const application = await findApplicationById(c.env.DB, id);
+  if (!application || application.status !== "pending") {
+    throw new AppError(404, "Ansökan finns inte eller är redan avgjord.", "application_not_pending");
+  }
+
+  // Finns adressen redan (inlagd manuellt under tiden)? Återanvänd raden och
+  // se till att den är aktiv, i stället för att krocka med unik-indexet.
+  let member = await findMemberByEmail(c.env.DB, application.email);
+  if (member) {
+    member = await updateMember(c.env.DB, member.id, {
+      active: true,
+      ...(member.name ? {} : { name: application.name }),
+      ...(member.club ? {} : { club: application.club }),
+    });
+  } else {
+    member = await createMember(c.env.DB, {
+      email: application.email,
+      name: application.name,
+      club: application.club,
+      notes: application.message ? `Från ansökan: ${application.message}` : null,
+    });
+  }
+
+  await decideApplication(c.env.DB, id, "approved", actor.id);
+
+  c.executionCtx.waitUntil(
+    sendApplicationApproved(c.env, application.email, application.name).catch((error) => {
+      console.error("application_approved_mail_failed", error);
+    }),
+  );
+
+  await audit(c.env.DB, {
+    action: "admin.application.approve",
+    result: "ok",
+    memberId: member.id,
+    actorEmail: actor.email,
+    detail: { email: application.email, club: application.club },
+    ip: clientIp(c),
+    userAgent: userAgent(c),
+  });
+
+  return c.json({ member: present(member) });
+});
+
+adminRoutes.post("/api/admin/applications/:id/reject", async (c) => {
+  const actor = c.get("member");
+  const id = c.req.param("id");
+
+  const application = await findApplicationById(c.env.DB, id);
+  if (!application || application.status !== "pending") {
+    throw new AppError(404, "Ansökan finns inte eller är redan avgjord.", "application_not_pending");
+  }
+
+  await decideApplication(c.env.DB, id, "rejected", actor.id);
+
+  c.executionCtx.waitUntil(
+    sendApplicationRejected(c.env, application.email, application.name).catch((error) => {
+      console.error("application_rejected_mail_failed", error);
+    }),
+  );
+
+  await audit(c.env.DB, {
+    action: "admin.application.reject",
+    result: "ok",
+    actorEmail: actor.email,
+    detail: { email: application.email },
+    ip: clientIp(c),
+    userAgent: userAgent(c),
+  });
+
+  return c.json({ ok: true });
 });
 
 // --- Revisionslogg ---
@@ -316,8 +456,6 @@ adminRoutes.get("/api/admin/audit", async (c) => {
 adminRoutes.get("/api/admin/settings", async (c) => {
   return c.json({
     unlockEnabled: (await getSetting(c.env.DB, "unlock_enabled", "1")) === "1",
-    memberSource: c.env.MEMBER_SOURCE,
-    tablerWorldConfigured: Boolean(c.env.TABLERWORLD_TOKEN && c.env.TABLERWORLD_CLUB_IDS),
   });
 });
 
@@ -341,40 +479,4 @@ adminRoutes.put("/api/admin/settings", async (c) => {
   return c.json({
     unlockEnabled: (await getSetting(c.env.DB, "unlock_enabled", "1")) === "1",
   });
-});
-
-// --- tabler.world ---
-
-/** Testanrop som inte skriver något: används för att verifiera sökväg och fältnamn. */
-adminRoutes.get("/api/admin/tablerworld/probe", async (c) => {
-  const source = new TablerWorldSource(c.env);
-  return c.json({ probe: await source.probe() });
-});
-
-adminRoutes.post("/api/admin/tablerworld/sync", async (c) => {
-  const actor = c.get("member");
-  const source = new TablerWorldSource(c.env);
-
-  try {
-    const result = await syncMembers(c.env.DB, source);
-    await audit(c.env.DB, {
-      action: "tablerworld.sync",
-      result: "ok",
-      actorEmail: actor.email,
-      detail: { ...result },
-      ip: clientIp(c),
-      userAgent: userAgent(c),
-    });
-    return c.json({ result });
-  } catch (error) {
-    await audit(c.env.DB, {
-      action: "tablerworld.sync",
-      result: "error",
-      actorEmail: actor.email,
-      detail: { message: error instanceof Error ? error.message : "okänt fel" },
-      ip: clientIp(c),
-      userAgent: userAgent(c),
-    });
-    throw error;
-  }
 });

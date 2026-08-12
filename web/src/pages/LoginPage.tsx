@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, type AppConfig } from "../api";
+import { navigate } from "../router";
 import { Turnstile } from "../components/Turnstile";
 
 /** Felkoder som Google-återhoppet kan lägga i URL:en. */
 const CALLBACK_ERRORS: Record<string, string> = {
-  ej_medlem:
-    "Den e-postadressen finns inte i medlemslistan. Hör av dig till en admin så lägger de in dig.",
   google_avbruten: "Inloggningen avbröts.",
   google_overifierad:
     "Google-kontots e-postadress är inte verifierad, så vi kan inte lita på den.",
@@ -57,8 +56,13 @@ export function LoginPage({ config, onSignedIn }: Props) {
     setError(null);
     setBusy(true);
     try {
-      await api.verifyCode(email.trim(), code.trim());
-      await onSignedIn();
+      const result = await api.verifyCode(email.trim(), code.trim());
+      if (result.member) {
+        await onSignedIn();
+      } else {
+        // Verifierad adress utan medlemskap: vidare till ansökan.
+        navigate("/ansok");
+      }
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Kunde inte verifiera koden.");
     } finally {
@@ -67,100 +71,115 @@ export function LoginPage({ config, onSignedIn }: Props) {
   }
 
   return (
-    <div className="app">
-      <header className="header">
-        <h1 className="header__title">{config?.appName ?? "Lokalen"}</h1>
-        <span className="header__meta">RT117 &amp; RT36</span>
-      </header>
+    <div className="login">
+      <div className="login__inner">
+        <header className="login__header">
+          <img className="login__logo" src="/logo.png" alt="" width={96} height={96} />
+          <h1 className="login__title">{config?.appName ?? "Lokalen"}</h1>
+          <p className="login__subtitle">Round Table 117 och 36, Linköping</p>
+        </header>
 
-      {error && <div className="notice notice--error">{error}</div>}
-      {info && <div className="notice notice--ok">{info}</div>}
+        {error && <div className="notice notice--error">{error}</div>}
+        {info && <div className="notice notice--ok">{info}</div>}
 
-      <div className="card">
-        <h2 className="card__title">Logga in för att låsa upp</h2>
-        <p className="card__hint">
-          Bara bröder i medlemslistan kommer in. Har du inte tillgång — hör av dig till en admin.
-        </p>
+        <div className="card">
+          {step === "email" ? (
+            <>
+              <h2 className="card__title">Logga in</h2>
+              <p className="card__hint">
+                Medlemmar loggar in och låser upp direkt. Ny här? Verifiera din e-postadress så
+                får du ansöka om åtkomst.
+              </p>
 
-        {config?.googleEnabled && (
-          <>
-            <a
-              className="btn"
-              href={`/auth/google/start?redirect=${encodeURIComponent("/")}`}
-              style={{ textDecoration: "none" }}
-            >
-              Fortsätt med Google
-            </a>
-            <div className="divider">eller</div>
-          </>
-        )}
+              {config?.googleEnabled && (
+                <>
+                  <a
+                    className="btn"
+                    href={`/auth/google/start?redirect=${encodeURIComponent("/")}`}
+                    style={{ textDecoration: "none" }}
+                  >
+                    Fortsätt med Google
+                  </a>
+                  <div className="divider">eller</div>
+                </>
+              )}
 
-        {step === "email" ? (
-          <form onSubmit={submitEmail}>
-            <div className="field">
-              <label htmlFor="email">E-postadress</label>
-              <input
-                id="email"
-                type="email"
-                inputMode="email"
-                autoComplete="email"
-                required
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="broder@example.se"
-              />
-            </div>
+              <form onSubmit={submitEmail}>
+                <div className="field">
+                  <label htmlFor="email">E-postadress</label>
+                  <input
+                    id="email"
+                    type="email"
+                    inputMode="email"
+                    autoComplete="email"
+                    required
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    placeholder="namn@example.se"
+                  />
+                </div>
 
-            {config?.turnstileSiteKey && (
-              <Turnstile siteKey={config.turnstileSiteKey} onToken={setTurnstileToken} />
-            )}
+                {config?.turnstileSiteKey && (
+                  <Turnstile siteKey={config.turnstileSiteKey} onToken={setTurnstileToken} />
+                )}
 
-            <button
-              className="btn"
-              type="submit"
-              disabled={busy || !email.trim() || (needsTurnstile && !turnstileToken)}
-            >
-              {busy ? "Skickar…" : "Skicka engångskod"}
-            </button>
-          </form>
-        ) : (
-          <form onSubmit={submitCode}>
-            <div className="field">
-              <label htmlFor="code">Kod från mejlet</label>
-              <input
-                id="code"
-                className="code-input"
-                type="text"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                pattern="[0-9]*"
-                maxLength={6}
-                required
-                autoFocus
-                value={code}
-                onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))}
-                placeholder="000000"
-              />
-            </div>
+                <button
+                  className="btn"
+                  type="submit"
+                  disabled={busy || !email.trim() || (needsTurnstile && !turnstileToken)}
+                >
+                  {busy ? "Skickar…" : "Skicka engångskod"}
+                </button>
+              </form>
+            </>
+          ) : (
+            <>
+              <h2 className="card__title">Skriv in koden</h2>
+              <p className="card__hint">
+                Vi har mejlat en sexsiffrig kod till {email.trim()}. Den gäller i 10 minuter.
+              </p>
 
-            <button className="btn" type="submit" disabled={busy || code.length < 6}>
-              {busy ? "Kontrollerar…" : "Logga in"}
-            </button>
+              <form onSubmit={submitCode}>
+                <div className="field">
+                  <label htmlFor="code">Kod från mejlet</label>
+                  <input
+                    id="code"
+                    className="code-input"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern="[0-9]*"
+                    maxLength={6}
+                    required
+                    autoFocus
+                    value={code}
+                    onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))}
+                    placeholder="000000"
+                  />
+                </div>
 
-            <button
-              type="button"
-              className="btn btn--ghost"
-              onClick={() => {
-                setStep("email");
-                setCode("");
-                setInfo(null);
-                setError(null);
-              }}
-            >
-              Använd en annan adress
-            </button>
-          </form>
-        )}
+                <button className="btn" type="submit" disabled={busy || code.length < 6}>
+                  {busy ? "Kontrollerar…" : "Logga in"}
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={() => {
+                    setStep("email");
+                    setCode("");
+                    setInfo(null);
+                    setError(null);
+                  }}
+                >
+                  Använd en annan adress
+                </button>
+              </form>
+            </>
+          )}
+        </div>
+
+        <p className="login__footer">Frågor om åtkomst? Hör av dig till någon i klubben.</p>
       </div>
     </div>
   );

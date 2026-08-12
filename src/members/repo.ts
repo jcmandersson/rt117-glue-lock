@@ -1,9 +1,10 @@
-import type { Member, MemberRole, MemberSourceKind } from "../types";
+import type { Member, MemberRole } from "../types";
 import { newId, now } from "../lib/ids";
 import { AppError } from "../lib/http";
 
-const COLUMNS = `id, email, phone, name, club, role, source, external_id, active,
-                 token_version, notes, created_at, updated_at, last_login_at`;
+const COLUMNS = `id, email, phone, name, club, role, active, token_version,
+                 valid_from, valid_until, notify_applications, notes,
+                 created_at, updated_at, last_login_at`;
 
 export interface CreateMemberInput {
   email?: string | null;
@@ -11,10 +12,10 @@ export interface CreateMemberInput {
   name?: string | null;
   club?: string | null;
   role?: MemberRole;
-  source?: MemberSourceKind;
-  externalId?: string | null;
   notes?: string | null;
   active?: boolean;
+  validFrom?: number | null;
+  validUntil?: number | null;
 }
 
 export interface UpdateMemberInput {
@@ -25,6 +26,16 @@ export interface UpdateMemberInput {
   role?: MemberRole;
   notes?: string | null;
   active?: boolean;
+  validFrom?: number | null;
+  validUntil?: number | null;
+  notifyApplications?: boolean;
+}
+
+/** Sant om medlemmens åtkomst gäller vid tidpunkten, med hänsyn till start- och slutdatum. */
+export function withinValidity(member: Member, ts: number): boolean {
+  if (member.valid_from !== null && ts < member.valid_from) return false;
+  if (member.valid_until !== null && ts > member.valid_until) return false;
+  return true;
 }
 
 export async function findMemberById(db: D1Database, id: string): Promise<Member | null> {
@@ -71,9 +82,9 @@ export async function createMember(
     await db
       .prepare(
         `INSERT INTO members
-           (id, email, phone, name, club, role, source, external_id, active,
-            token_version, notes, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+           (id, email, phone, name, club, role, source, active,
+            token_version, valid_from, valid_until, notes, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'admin', ?, 1, ?, ?, ?, ?, ?)`,
       )
       .bind(
         id,
@@ -82,9 +93,9 @@ export async function createMember(
         input.name ?? null,
         input.club ?? null,
         input.role ?? "member",
-        input.source ?? "admin",
-        input.externalId ?? null,
         input.active === false ? 0 : 1,
+        input.validFrom ?? null,
+        input.validUntil ?? null,
         input.notes ?? null,
         ts,
         ts,
@@ -122,6 +133,11 @@ export async function updateMember(
   if (input.role !== undefined) assign("role", input.role);
   if (input.notes !== undefined) assign("notes", input.notes);
   if (input.active !== undefined) assign("active", input.active ? 1 : 0);
+  if (input.validFrom !== undefined) assign("valid_from", input.validFrom);
+  if (input.validUntil !== undefined) assign("valid_until", input.validUntil);
+  if (input.notifyApplications !== undefined) {
+    assign("notify_applications", input.notifyApplications ? 1 : 0);
+  }
 
   if (fields.length === 0) {
     const existing = await findMemberById(db, id);
@@ -173,6 +189,17 @@ export async function countAdmins(db: D1Database): Promise<number> {
     .prepare(`SELECT COUNT(*) AS n FROM members WHERE role = 'admin' AND active = 1`)
     .first<{ n: number }>();
   return row?.n ?? 0;
+}
+
+/** Aktiva admins med e-post som vill ha mejl när en ny ansökan kommer in. */
+export async function listApplicationRecipients(db: D1Database): Promise<string[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT email FROM members
+       WHERE role = 'admin' AND active = 1 AND notify_applications = 1 AND email IS NOT NULL`,
+    )
+    .all<{ email: string }>();
+  return results.map((row) => row.email);
 }
 
 function isUniqueViolation(error: unknown): boolean {

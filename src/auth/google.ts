@@ -7,7 +7,7 @@ const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const USERINFO_ENDPOINT = "https://openidconnect.googleapis.com/v1/userinfo";
 
-/** OAuth-state lever kort — bara tillräckligt för att hinna klicka i Googles dialog. */
+/** OAuth-state lever kort, bara tillräckligt för att hinna klicka i Googles dialog. */
 const STATE_TTL_SECONDS = 10 * 60;
 
 export interface GoogleIdentity {
@@ -150,7 +150,7 @@ export async function completeGoogleLogin(
   };
 }
 
-/** Interna redirects bara — annars blir inloggningen en öppen vidarebefordran. */
+/** Interna redirects bara, annars blir inloggningen en öppen vidarebefordran. */
 export function safeRedirectPath(value: string | null | undefined): string {
   if (!value) return "/";
   if (!value.startsWith("/") || value.startsWith("//")) return "/";

@@ -3,6 +3,7 @@ import type { AppContext, Env } from "./types";
 import { AppError } from "./lib/http";
 import { requireMember } from "./auth/middleware";
 import { authRoutes } from "./routes/auth";
+import { applyRoutes } from "./routes/apply";
 import { unlockRoutes } from "./routes/unlock";
 import { adminRoutes } from "./routes/admin";
 import { isMockMode } from "./glue/client";
@@ -20,7 +21,7 @@ app.use("*", async (c, next) => {
   c.header("X-Content-Type-Options", "nosniff");
   c.header("Referrer-Policy", "strict-origin-when-cross-origin");
   c.header("X-Frame-Options", "DENY");
-  // Svar från API:t ska aldrig cachas — de är personliga.
+  // Svar från API:t ska aldrig cachas, de är personliga.
   if (new URL(c.req.url).pathname.startsWith("/api/")) {
     c.header("Cache-Control", "no-store");
   }
@@ -36,12 +37,15 @@ app.get("/api/me", requireMember, (c) => {
       name: member.name,
       club: member.club,
       role: member.role,
+      validFrom: member.valid_from,
+      validUntil: member.valid_until,
     },
     mock: isMockMode(c.env),
   });
 });
 
 app.route("/", authRoutes);
+app.route("/", applyRoutes);
 app.route("/", unlockRoutes);
 app.route("/", adminRoutes);
 
@@ -86,6 +90,7 @@ app.onError((error, c) => {
 const RETENTION = {
   auditLogDays: 365,
   unlockOperationsDays: 90,
+  decidedApplicationsDays: 180,
 } as const;
 
 async function cleanup(env: Env): Promise<void> {
@@ -102,6 +107,9 @@ async function cleanup(env: Env): Promise<void> {
     env.DB
       .prepare(`DELETE FROM audit_log WHERE ts < ?`)
       .bind(ts - RETENTION.auditLogDays * day),
+    env.DB
+      .prepare(`DELETE FROM applications WHERE status != 'pending' AND decided_at < ?`)
+      .bind(ts - RETENTION.decidedApplicationsDays * day),
   ];
 
   await env.DB.batch(statements);

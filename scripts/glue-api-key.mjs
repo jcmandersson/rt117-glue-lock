@@ -36,7 +36,7 @@ function ask(question) {
 function askHidden(question) {
   return new Promise((resolve, reject) => {
     if (!stdin.isTTY) {
-      reject(new Error("Ingen terminal — kör skriptet interaktivt."));
+      reject(new Error("Ingen terminal. Kör skriptet interaktivt."));
       return;
     }
 

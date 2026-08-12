@@ -19,10 +19,19 @@ export default defineConfig(async () => {
             APP_URL: "http://localhost:8787",
             APP_NAME: "Testlokalen",
             MAIL_FROM: "test@example.invalid",
-            // Simulerat lås — inga anrop mot Glue i testerna.
+            // Simulerat lås, inga anrop mot Glue i testerna.
             GLUE_MOCK: "1",
-            MEMBER_SOURCE: "admin",
             BOOTSTRAP_ADMIN_EMAILS: "chef@rt117.se",
+
+            // Testerna får aldrig nå riktiga tjänster, även om .dev.vars har
+            // nycklar. Tomma strängar räknas som avstängt i koden.
+            RESEND_API_KEY: "",
+            GOOGLE_CLIENT_ID: "",
+            GOOGLE_CLIENT_SECRET: "",
+            TURNSTILE_SITE_KEY: "",
+            TURNSTILE_SECRET_KEY: "",
+            GLUE_API_KEY: "",
+            GLUE_LOCK_ID: "",
           },
         },
       }),

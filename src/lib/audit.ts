@@ -8,13 +8,15 @@ export type AuditAction =
   | "logout"
   | "unlock.request"
   | "unlock.result"
+  | "apply.submit"
   | "admin.member.create"
   | "admin.member.update"
   | "admin.member.delete"
   | "admin.member.revoke_sessions"
   | "admin.members.import"
-  | "admin.setting.update"
-  | "tablerworld.sync";
+  | "admin.application.approve"
+  | "admin.application.reject"
+  | "admin.setting.update";
 
 export interface AuditEntry {
   action: AuditAction;

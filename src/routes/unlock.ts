@@ -5,7 +5,9 @@ import { newId, now } from "../lib/ids";
 import { audit } from "../lib/audit";
 import { enforceRateLimit } from "../lib/ratelimit";
 import { isUnlockEnabled } from "../lib/settings";
+import { formatStockholm } from "../lib/dates";
 import { requireMember } from "../auth/middleware";
+import { withinValidity } from "../members/repo";
 import {
   createGlueClient,
   isMockMode,
@@ -44,7 +46,7 @@ unlockRoutes.get("/api/lock/status", async (c) => {
       },
     });
   } catch (error) {
-    // Statusen får inte fälla hela sidan — knappen ska fungera ändå.
+    // Statusen får inte fälla hela sidan, knappen ska fungera ändå.
     const message = error instanceof AppError ? error.message : "Kunde inte läsa låsets status.";
     return c.json({ unlockEnabled, mock, lock: null, lockError: message });
   }
@@ -69,6 +71,28 @@ unlockRoutes.post("/api/unlock", async (c) => {
       503,
       "Upplåsning är tillfälligt avstängd av en admin.",
       "unlock_disabled",
+    );
+  }
+
+  // Medlemmar med start- och slutdatum (t.ex. någon som hyr lokalen) kan
+  // logga in när som helst men bara låsa upp inom sitt fönster.
+  if (!withinValidity(member, now())) {
+    const beforeStart = member.valid_from !== null && now() < member.valid_from;
+    await audit(c.env.DB, {
+      action: "unlock.request",
+      result: "denied",
+      memberId: member.id,
+      actorEmail: member.email,
+      detail: { reason: "outside_validity" },
+      ip,
+      userAgent: ua,
+    });
+    throw new AppError(
+      403,
+      beforeStart
+        ? `Din åtkomst börjar gälla ${formatStockholm(member.valid_from!)}.`
+        : `Din åtkomst gick ut ${formatStockholm(member.valid_until!)}.`,
+      "outside_validity",
     );
   }
 

@@ -12,9 +12,10 @@ import {
   googleConfigured,
   safeRedirectPath,
 } from "../auth/google";
-import { clearSessionCookie, issueSessionCookie } from "../auth/session";
+import { clearSessionCookie, issueApplicantCookie, issueSessionCookie } from "../auth/session";
 import { resolveMemberForLogin } from "../members/source";
 import { touchLastLogin } from "../members/repo";
+import { findPendingByEmail } from "../applications/repo";
 
 export const authRoutes = new Hono<AppContext>();
 
@@ -23,7 +24,7 @@ authRoutes.get("/api/config", (c) =>
   c.json({
     appName: c.env.APP_NAME,
     googleEnabled: googleConfigured(c.env),
-    turnstileSiteKey: c.env.TURNSTILE_SITE_KEY ?? null,
+    turnstileSiteKey: c.env.TURNSTILE_SITE_KEY || null,
   }),
 );
 
@@ -53,10 +54,9 @@ authRoutes.post("/api/auth/otp/request", async (c) => {
     userAgent: userAgent(c),
   });
 
-  // Samma svar oavsett om adressen finns i registret — se src/auth/otp.ts.
   return c.json({
     ok: true,
-    message: "Finns adressen i medlemslistan är en kod på väg. Den gäller i 10 minuter.",
+    message: "En kod är på väg till din inkorg. Den gäller i 10 minuter.",
   });
 });
 
@@ -71,19 +71,37 @@ authRoutes.post("/api/auth/otp/verify", async (c) => {
 
   try {
     const member = await verifyLoginCode(c.env, email, code, ip);
-    await issueSessionCookie(c, member, "otp");
-    await touchLastLogin(c.env.DB, member.id);
+
+    if (member) {
+      await issueSessionCookie(c, member, "otp");
+      await touchLastLogin(c.env.DB, member.id);
+
+      await audit(c.env.DB, {
+        action: "login.otp.verify",
+        result: "ok",
+        memberId: member.id,
+        actorEmail: email,
+        ip,
+        userAgent: userAgent(c),
+      });
+
+      return c.json({ ok: true, member: true });
+    }
+
+    // Verifierad adress utan medlemskap: skicka vidare till ansökan.
+    await issueApplicantCookie(c, { email, name: null, via: "otp" });
+    const pending = await findPendingByEmail(c.env.DB, email);
 
     await audit(c.env.DB, {
       action: "login.otp.verify",
       result: "ok",
-      memberId: member.id,
       actorEmail: email,
+      detail: { applicant: true },
       ip,
       userAgent: userAgent(c),
     });
 
-    return c.json({ ok: true });
+    return c.json({ ok: true, member: false, pending: Boolean(pending) });
   } catch (error) {
     await audit(c.env.DB, {
       action: "login.otp.verify",
@@ -116,7 +134,7 @@ authRoutes.get("/auth/google/callback", async (c) => {
   const ip = clientIp(c);
   const errorParam = c.req.query("error");
   if (errorParam) {
-    // Användaren avbröt i Googles dialog — inget fel att larma om.
+    // Användaren avbröt i Googles dialog. Inget fel att larma om.
     return c.redirect("/logga-in?fel=google_avbruten", 302);
   }
 
@@ -141,16 +159,21 @@ authRoutes.get("/auth/google/callback", async (c) => {
   }
 
   const member = await resolveMemberForLogin(c.env, email);
+
   if (!member) {
+    // Verifierad adress utan medlemskap: skicka vidare till ansökan.
+    await issueApplicantCookie(c, { email, name: identity.name, via: "google" });
+
     await audit(c.env.DB, {
       action: "login.google.callback",
-      result: "denied",
+      result: "ok",
       actorEmail: email,
-      detail: { reason: "not_a_member" },
+      detail: { applicant: true },
       ip,
       userAgent: userAgent(c),
     });
-    return c.redirect("/logga-in?fel=ej_medlem", 302);
+
+    return c.redirect("/ansok", 302);
   }
 
   // Fyll i namnet från Google om admin inte skrivit något.

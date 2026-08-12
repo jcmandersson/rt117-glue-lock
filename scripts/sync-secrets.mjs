@@ -4,8 +4,8 @@
  *
  * Kör: node scripts/sync-secrets.mjs
  *
- * Tanken är att du bara ska behöva mata in nycklarna på ett ställe — under
- * Settings → Secrets and variables → Actions i GitHub — och att deployen sköter
+ * Tanken är att du bara ska behöva mata in nycklarna på ett ställe, under
+ * Settings → Secrets and variables → Actions i GitHub, och att deployen sköter
  * resten. Hemligheter som saknas eller är tomma hoppas över, så du kan lägga
  * till dem en och en utan att radera dem du redan satt.
  *
@@ -32,12 +32,6 @@ const SECRETS = [
   // Botskydd. Valfritt.
   "TURNSTILE_SITE_KEY",
   "TURNSTILE_SECRET_KEY",
-  // tabler.world. Avstängt tills det är verifierat.
-  "TABLERWORLD_TOKEN",
-  "TABLERWORLD_CLUB_IDS",
-  "TABLERWORLD_BASE_URL",
-  "TABLERWORLD_AUTH_SCHEME",
-  "TABLERWORLD_MEMBERS_PATH",
 ];
 
 const REQUIRED = ["SESSION_SECRET", "OTP_PEPPER"];

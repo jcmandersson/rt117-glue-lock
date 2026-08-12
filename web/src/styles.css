@@ -1,12 +1,17 @@
+/* RT117:s färger: klubbblått med gult som accent. Mobile-first rakt igenom. */
+
 :root {
-  --bg: #f4f6f9;
+  --bg: #edf2f8;
   --surface: #ffffff;
-  --surface-2: #eef1f6;
-  --border: #d8dfe9;
-  --text: #16202c;
-  --muted: #5b6b7f;
-  --accent: #0b4f9e;
+  --surface-2: #f1f5fa;
+  --border: #d6e0ec;
+  --text: #14263a;
+  --muted: #5c6f84;
+  --accent: #0660a0;
+  --accent-strong: #084a79;
   --accent-text: #ffffff;
+  --gold: #ffcc01;
+  --gold-text: #3d3200;
   --ok: #146c43;
   --ok-bg: #e6f4ec;
   --warn: #8a5a00;
@@ -14,19 +19,24 @@
   --error: #a01d28;
   --error-bg: #fdeaec;
   --radius: 12px;
-  --shadow: 0 1px 2px rgba(16, 32, 48, 0.06), 0 8px 24px rgba(16, 32, 48, 0.06);
+  --shadow: 0 1px 2px rgba(8, 42, 72, 0.06), 0 8px 24px rgba(8, 42, 72, 0.08);
+  --hero-from: #0a5590;
+  --hero-to: #063a63;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0d1420;
-    --surface: #16202e;
-    --surface-2: #1d2937;
-    --border: #2b3849;
-    --text: #e8eef6;
-    --muted: #9bacc0;
-    --accent: #4a92e8;
-    --accent-text: #08131f;
+    --bg: #0a1622;
+    --surface: #122233;
+    --surface-2: #182c42;
+    --border: #28405a;
+    --text: #e9f1f9;
+    --muted: #9db2c8;
+    --accent: #4d9fe0;
+    --accent-strong: #77b8ea;
+    --accent-text: #06192b;
+    --gold: #ffd23e;
+    --gold-text: #2e2500;
     --ok: #6edba0;
     --ok-bg: #12301f;
     --warn: #f0c07a;
@@ -34,6 +44,8 @@
     --error: #ff97a2;
     --error-bg: #3a151b;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.3);
+    --hero-from: #0b2b47;
+    --hero-to: #071c30;
   }
 }
 
@@ -59,33 +71,107 @@ body {
 .app {
   max-width: 560px;
   margin: 0 auto;
-  padding: 24px 16px calc(32px + env(safe-area-inset-bottom));
+  padding: 20px 16px calc(32px + env(safe-area-inset-bottom));
 }
 
 .app--wide {
-  max-width: 1000px;
+  max-width: 760px;
 }
 
-/* --- Sidhuvud --- */
+/* --- Inloggning och ansökan: helskärm med klubbfärgad bakgrund --- */
+
+.login {
+  min-height: 100dvh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  background:
+    radial-gradient(1200px 500px at 50% -180px, var(--hero-from), transparent 70%),
+    var(--bg);
+  padding: 32px 16px calc(40px + env(safe-area-inset-bottom));
+}
+
+.login__inner {
+  width: 100%;
+  max-width: 420px;
+}
+
+.login__header {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.login__logo {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: #ffffff;
+  padding: 6px;
+  box-shadow: var(--shadow);
+}
+
+.login__title {
+  margin: 14px 0 2px;
+  font-size: 24px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+  text-shadow: 0 1px 8px rgba(4, 30, 54, 0.5);
+}
+
+.login__subtitle {
+  margin: 0;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.82);
+  text-shadow: 0 1px 6px rgba(4, 30, 54, 0.5);
+}
+
+.login__footer {
+  margin: 18px 4px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* --- Sidhuvud på inloggade sidor --- */
 
 .header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
+}
+
+.header__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.header__logo {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #ffffff;
+  padding: 2px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 .header__title {
   margin: 0;
   font-size: 19px;
-  font-weight: 650;
+  font-weight: 700;
   letter-spacing: -0.01em;
 }
 
 .header__meta {
   font-size: 13px;
   color: var(--muted);
+  text-align: right;
+  overflow-wrap: anywhere;
 }
 
 /* --- Kort --- */
@@ -94,7 +180,7 @@ body {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 20px;
+  padding: 18px;
   box-shadow: var(--shadow);
   margin-bottom: 16px;
 }
@@ -102,7 +188,20 @@ body {
 .card__title {
   margin: 0 0 4px;
   font-size: 16px;
-  font-weight: 650;
+  font-weight: 700;
+}
+
+.card__titlerow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.card__toggle {
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 .card__hint {
@@ -120,16 +219,16 @@ body {
   justify-content: center;
   gap: 8px;
   width: 100%;
-  min-height: 200px;
+  min-height: 210px;
   border: none;
-  border-radius: 20px;
-  background: var(--accent);
+  border-radius: 22px;
+  background: linear-gradient(160deg, var(--accent) 0%, var(--accent-strong) 100%);
   color: var(--accent-text);
   font-size: 24px;
-  font-weight: 700;
+  font-weight: 750;
   letter-spacing: -0.01em;
   cursor: pointer;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow), inset 0 -3px 0 rgba(255, 204, 1, 0.85);
   transition: transform 120ms ease, filter 120ms ease;
   -webkit-tap-highlight-color: transparent;
 }
@@ -147,11 +246,13 @@ body {
 .unlock--done {
   background: var(--ok);
   color: #04140b;
+  box-shadow: var(--shadow);
 }
 
 .unlock--error {
   background: var(--error);
   color: #1b0508;
+  box-shadow: var(--shadow);
 }
 
 .unlock__icon {
@@ -177,6 +278,7 @@ label {
 input[type="text"],
 input[type="email"],
 input[type="tel"],
+input[type="date"],
 textarea,
 select {
   width: 100%;
@@ -191,7 +293,8 @@ select {
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible,
-button:focus-visible {
+button:focus-visible,
+a.btn:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -202,8 +305,27 @@ textarea {
   font-size: 13px;
 }
 
+.textarea-plain {
+  font-family: inherit;
+  font-size: 15px;
+  min-height: 96px;
+}
+
 .field {
   margin-bottom: 14px;
+}
+
+.field--checkbox label {
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.field--checkbox input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
 }
 
 .field-row {
@@ -315,7 +437,7 @@ textarea {
   color: var(--error);
 }
 
-/* --- Låsstatus --- */
+/* --- Statuspiller --- */
 
 .status-grid {
   display: flex;
@@ -329,12 +451,13 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
+  padding: 3px 10px;
   border-radius: 999px;
   background: var(--surface-2);
   border: 1px solid var(--border);
   font-size: 12px;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .pill--ok {
@@ -349,36 +472,73 @@ textarea {
   color: var(--error);
 }
 
-/* --- Tabell --- */
-
-.table-scroll {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
+.pill--accent {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
-table {
-  width: 100%;
-  border-collapse: collapse;
+/* --- Listor (medlemmar, ansökningar, logg): kort i stället för tabeller --- */
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.list__item {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.list__item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.list--tight .list__item {
+  padding: 10px 0;
+}
+
+.list__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.list__title {
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.list__meta {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.list__quote {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border-left: 3px solid var(--gold);
+  border-radius: 0 8px 8px 0;
   font-size: 14px;
 }
 
-th,
-td {
-  text-align: left;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
+.list__detail {
+  margin-top: 6px;
+  overflow-wrap: anywhere;
 }
 
-th {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
+.list__actions {
+  margin-top: 10px;
 }
 
-tr.is-inactive td {
-  opacity: 0.5;
+.is-inactive .list__title,
+.is-inactive .list__meta {
+  opacity: 0.55;
 }
 
 /* --- Flikar --- */
@@ -389,10 +549,18 @@ tr.is-inactive td {
   margin-bottom: 16px;
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .tab {
-  padding: 10px 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
   border: none;
   background: none;
   font: inherit;
@@ -405,7 +573,57 @@ tr.is-inactive td {
 
 .tab[aria-selected="true"] {
   color: var(--accent);
-  border-bottom-color: var(--accent);
+  border-bottom-color: var(--gold);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--gold);
+  color: var(--gold-text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* --- Modal --- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 22, 38, 0.55);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 20;
+  padding: 0;
+}
+
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px 16px 0 0;
+  padding: 20px 18px calc(20px + env(safe-area-inset-bottom));
+  width: 100%;
+  max-width: 560px;
+  max-height: 88dvh;
+  overflow-y: auto;
+}
+
+@media (min-width: 600px) {
+  .modal-backdrop {
+    align-items: center;
+    padding: 24px;
+  }
+
+  .modal {
+    border-radius: 16px;
+    padding: 24px;
+  }
 }
 
 /* --- Diverse --- */

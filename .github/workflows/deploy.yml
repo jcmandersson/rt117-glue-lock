@@ -85,14 +85,9 @@ jobs:
           GLUE_LOCK_ID: ${{ secrets.GLUE_LOCK_ID }}
           TURNSTILE_SITE_KEY: ${{ secrets.TURNSTILE_SITE_KEY }}
           TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
-          TABLERWORLD_TOKEN: ${{ secrets.TABLERWORLD_TOKEN }}
-          TABLERWORLD_CLUB_IDS: ${{ secrets.TABLERWORLD_CLUB_IDS }}
-          TABLERWORLD_BASE_URL: ${{ secrets.TABLERWORLD_BASE_URL }}
-          TABLERWORLD_AUTH_SCHEME: ${{ secrets.TABLERWORLD_AUTH_SCHEME }}
-          TABLERWORLD_MEMBERS_PATH: ${{ secrets.TABLERWORLD_MEMBERS_PATH }}
         run: node scripts/sync-secrets.mjs
 
-      # Enkel kontroll att sidan svarar. Fäller inte deployen — första gången
+      # Enkel kontroll att sidan svarar. Fäller inte deployen. Första gången
       # finns ingen DNS ännu, och då är ett rött kryss bara vilseledande.
       - name: Kontrollera att sidan svarar
         continue-on-error: true

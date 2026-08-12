@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, type LockStatus, type Me } from "../api";
 import { navigate } from "../router";
+import { formatDate, formatWindow } from "../dates";
 
 type Phase = "idle" | "working" | "done" | "error";
 
-/** Pollningen: 1,2 s mellan varje fråga i upp till ~30 s. */
+/** Pollningen: 1,2 s mellan varje fråga i upp till cirka 30 s. */
 const POLL_INTERVAL_MS = 1200;
 const MAX_POLLS = 25;
 
@@ -73,7 +74,7 @@ export function UnlockPage({ me, onSignedOut }: Props) {
       if (current === "completed") {
         setPhase("done");
         setMessage(null);
-        // Tillbaka till utgångsläget så nästa broder kan trycka.
+        // Tillbaka till utgångsläget så nästa person kan trycka.
         setTimeout(() => {
           if (!cancelled.current) setPhase("idle");
         }, 6000);
@@ -104,12 +105,25 @@ export function UnlockPage({ me, onSignedOut }: Props) {
   }
 
   const lock = status?.lock;
-  const disabled = phase === "working" || status?.unlockEnabled === false;
+
+  // Medlemmar med start- och slutdatum kan logga in när som helst men bara
+  // låsa upp inom sitt fönster. Servern kontrollerar också, det här är bara UI.
+  const nowSec = Math.floor(Date.now() / 1000);
+  const { validFrom, validUntil } = me.member;
+  const beforeStart = validFrom !== null && nowSec < validFrom;
+  const afterEnd = validUntil !== null && nowSec > validUntil;
+  const outsideWindow = beforeStart || afterEnd;
+  const window = formatWindow(validFrom, validUntil);
+
+  const disabled = phase === "working" || status?.unlockEnabled === false || outsideWindow;
 
   return (
     <div className="app">
       <header className="header">
-        <h1 className="header__title">Lokalen</h1>
+        <div className="header__brand">
+          <img className="header__logo" src="/logo.png" alt="" width={34} height={34} />
+          <h1 className="header__title">Lokalen</h1>
+        </div>
         <span className="header__meta">
           {me.member.name ?? me.member.email}
           {me.member.club ? ` · ${me.member.club}` : ""}
@@ -126,6 +140,20 @@ export function UnlockPage({ me, onSignedOut }: Props) {
       {status?.unlockEnabled === false && (
         <div className="notice notice--error">
           Upplåsning är avstängd av en admin just nu.
+        </div>
+      )}
+
+      {beforeStart && (
+        <div className="notice notice--warn">
+          Din åtkomst börjar gälla {formatDate(validFrom!)}. Fram till dess går det inte att låsa
+          upp.
+        </div>
+      )}
+
+      {afterEnd && (
+        <div className="notice notice--error">
+          Din åtkomst gick ut {formatDate(validUntil!)}. Hör av dig till klubben om du behöver
+          komma in igen.
         </div>
       )}
 
@@ -206,6 +234,7 @@ export function UnlockPage({ me, onSignedOut }: Props) {
           ) : (
             <span className="muted">Låsets status är okänd.</span>
           )}
+          {window && !outsideWindow && <span className="pill">Åtkomst {window}</span>}
         </div>
       </div>
 

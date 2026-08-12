@@ -1,4 +1,4 @@
--- RT117/RT36 Glue-lås — grundschema
+-- RT117/RT36 Glue-lås, grundschema
 -- Tidsstämplar lagras som unix-sekunder (INTEGER) om inget annat anges.
 
 -- Medlemmar. En medlem kan komma från admin-listan eller (senare) tabler.world.

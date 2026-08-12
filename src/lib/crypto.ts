@@ -1,6 +1,6 @@
 /**
  * Kryptohjälpare byggda på Web Crypto, som finns inbyggt i Workers.
- * Ingen extern dependency — håller bundlen liten nog för Workers free tier.
+ * Ingen extern dependency, det håller bundlen liten nog för Workers free tier.
  */
 
 const encoder = new TextEncoder();
