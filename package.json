@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "concurrently -n web,api -c cyan,magenta \"npm:dev:web\" \"npm:dev:api\"",
     "dev:web": "vite",
-    "dev:api": "wrangler dev",
+    "dev:api": "mkdir -p dist/client && wrangler dev",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
