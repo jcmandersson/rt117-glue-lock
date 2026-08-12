@@ -38,7 +38,7 @@ automatisk — det handlar om att mata in nycklar (§ [Driftsättning](#driftsä
 3. Hämta en Glue-API-nyckel och peka ut rätt lås.
 4. Skapa en Google OAuth-klient.
 5. Verifiera avsändardomän hos Resend och lägg DNS-poster på `rt117.se`.
-6. Peka `las.rt117.se` mot Workern.
+6. Peka `lock.rt117.se` mot Workern.
 7. Lägg in resten av bröderna via adminsidan.
 8. Låt någon titta på GDPR-frågan (§ [Personuppgifter](#personuppgifter)).
 
@@ -46,7 +46,7 @@ automatisk — det handlar om att mata in nycklar (§ [Driftsättning](#driftsä
 
 ```
 Broderns telefon
-      │  https://las.rt117.se
+      │  https://lock.rt117.se
       ▼
 Cloudflare Worker (Hono)  ──►  D1 (medlemmar, koder, logg)
       │
@@ -214,7 +214,7 @@ första deployen.
 **Google.** I [Google Cloud Console](https://console.cloud.google.com/apis/credentials),
 skapa en OAuth-klient av typen **Web application**:
 
-- Authorized redirect URI: `https://las.rt117.se/auth/google/callback`
+- Authorized redirect URI: `https://lock.rt117.se/auth/google/callback`
 - Lägg även till `http://localhost:5173/auth/google/callback` för lokal utveckling
 
 **E-post.** Verifiera `rt117.se` som avsändardomän hos
@@ -225,11 +225,11 @@ in — normalt en DKIM-post (`TXT`), en post för returadressen och gärna SPF.
 ### Steg 4: Peka adressen mot Workern
 
 I Cloudflare-dashboarden: **Workers & Pages → rt117-glue-lock → Settings →
-Domains & Routes → Add custom domain**, och ange `las.rt117.se`. Ligger
+Domains & Routes → Add custom domain**, och ange `lock.rt117.se`. Ligger
 `rt117.se` inte redan i Cloudflare behöver zonen flyttas dit.
 
 Uppdatera sedan `APP_URL` i `wrangler.jsonc` om adressen blev en annan än
-`https://las.rt117.se` och committa — den styr Googles redirect-URI, och stämmer
+`https://lock.rt117.se` och committa — den styr Googles redirect-URI, och stämmer
 den inte slutar återhoppet fungera.
 
 ### Inställningar som inte är hemliga

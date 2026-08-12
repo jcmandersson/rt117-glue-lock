@@ -36,7 +36,7 @@
   // Hemligheter (inklusive BOOTSTRAP_ADMIN_EMAILS) sätts som GitHub-secrets och
   // synkas till Workern av .github/workflows/deploy.yml — se README.
   "vars": {
-    "APP_URL": "https://las.rt117.se",
+    "APP_URL": "https://lock.rt117.se",
     "APP_NAME": "RT117/RT36 Lokalen",
     "MAIL_FROM": "RT117 Lokalen <no-reply@rt117.se>",
     "GLUE_MOCK": "0",
