@@ -14,6 +14,10 @@
     "run_worker_first": ["/api/*", "/auth/*"]
   },
 
+  // Kopplar lock.rt117.se till Workern vid deploy (skapar DNS-post och cert
+  // automatiskt — zonen rt117.se måste ligga i samma Cloudflare-konto).
+  "routes": [{ "pattern": "lock.rt117.se", "custom_domain": true }],
+
   "d1_databases": [
     {
       "binding": "DB",
