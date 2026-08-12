@@ -1,0 +1,35 @@
+# Lokala hemligheter för `wrangler dev`. Kopiera till .dev.vars (som är gitignorerad).
+# I produktion sätts dessa med `npx wrangler secret put <NAMN>` i stället.
+
+# Obligatoriska. Generera med: npm run secrets:gen
+SESSION_SECRET="byt-ut-mig"
+OTP_PEPPER="byt-ut-mig-också"
+
+# Lokalt kör du mot Vite-servern på 5173, som proxar /api och /auth till wrangler.
+# Detta överskuggar APP_URL från wrangler.jsonc och styr Googles redirect-URI.
+APP_URL="http://localhost:5173"
+
+# Google-inloggning. Skapa en OAuth-klient (typ "Web application") i Google Cloud Console
+# och lägg till http://localhost:5173/auth/google/callback som Authorized redirect URI.
+# Utan dessa döljs Google-knappen och bara engångskod via e-post fungerar.
+GOOGLE_CLIENT_ID=""
+GOOGLE_CLIENT_SECRET=""
+
+# E-post. Utan nyckel skickas inget mejl — koden skrivs i stället ut i
+# `wrangler dev`-loggen, vilket är bekvämt lokalt.
+RESEND_API_KEY=""
+
+# Glue. Hämta nyckeln med `npm run glue:api-key`, hitta lock-id med `npm run glue:locks`.
+# Lämna tomma för att köra i simulerat läge.
+GLUE_API_KEY=""
+GLUE_LOCK_ID=""
+
+# Turnstile (Cloudflares gratis-CAPTCHA). Lämna tomma för att stänga av botskyddet.
+TURNSTILE_SITE_KEY=""
+TURNSTILE_SECRET_KEY=""
+
+# tabler.world. Av som standard — verifiera sökväg och fältnamn först,
+# se src/members/tablerworld.ts.
+TABLERWORLD_TOKEN=""
+TABLERWORLD_CLUB_IDS=""
+TABLERWORLD_MEMBERS_PATH=""

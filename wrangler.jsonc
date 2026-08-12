@@ -1,0 +1,44 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "rt117-glue-lock",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Statiska filer (den byggda React-appen). `run_worker_first` säkerställer att
+  // API- och auth-anrop alltid går till Workern och inte fångas av SPA-fallbacken.
+  "assets": {
+    "directory": "./dist/client",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/auth/*"]
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "rt117-glue-lock",
+      "database_id": "PLACEHOLDER_FYLLS_I_AV_WRANGLER_D1_CREATE",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "observability": {
+    "enabled": true
+  },
+
+  // Nattlig städning av utgångna koder, oauth-state och gamla loggrader.
+  "triggers": {
+    "crons": ["17 3 * * *"]
+  },
+
+  // Publika, icke-hemliga inställningar. Hemligheter sätts med `wrangler secret put`.
+  "vars": {
+    "APP_URL": "https://las.rt117.se",
+    "APP_NAME": "RT117/RT36 Lokalen",
+    "MAIL_FROM": "RT117 Lokalen <no-reply@rt117.se>",
+    "GLUE_MOCK": "0",
+    "MEMBER_SOURCE": "admin",
+    "BOOTSTRAP_ADMIN_EMAILS": ""
+  }
+}

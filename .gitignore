@@ -102,3 +102,12 @@ dist
 
 # TernJS port file
 .tern-port
+
+# Cloudflare Workers / wrangler
+.wrangler/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
+# Byggd frontend (serveras som statiska filer av Workern)
+dist/
