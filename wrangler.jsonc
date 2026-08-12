@@ -16,7 +16,13 @@
 
   // Kopplar lock.rt117.se till Workern vid deploy (skapar DNS-post och cert
   // automatiskt; zonen rt117.se måste ligga i samma Cloudflare-konto).
-  "routes": [{ "pattern": "lock.rt117.se", "custom_domain": true }],
+  // Den explicita routen behövs också: hemside-workern (rt117-website) har en
+  // wildcard-route på zonen, och routes går före custom domains. Ett mer
+  // specifikt mönster vinner över wildcarden.
+  "routes": [
+    { "pattern": "lock.rt117.se", "custom_domain": true },
+    { "pattern": "lock.rt117.se/*", "zone_name": "rt117.se" }
+  ],
 
   "d1_databases": [
     {
