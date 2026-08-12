@@ -11,12 +11,16 @@ export interface Env {
   GLUE_MOCK: string;
   /** 'admin' | 'tablerworld' */
   MEMBER_SOURCE: string;
-  /** Kommaseparerade e-postadresser som alltid är admin. Används för att komma igång. */
-  BOOTSTRAP_ADMIN_EMAILS: string;
 
-  // --- Secrets (wrangler secret put) ---
+  // --- Secrets (wrangler secret put / GitHub-secrets) ---
   SESSION_SECRET: string;
   OTP_PEPPER: string;
+  /**
+   * Kommaseparerade e-postadresser som alltid är admin — så du kommer in i ett
+   * tomt system. Hålls som secret, inte var: det är en åtkomstlista med
+   * personuppgifter och hör inte hemma i repot.
+   */
+  BOOTSTRAP_ADMIN_EMAILS?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   RESEND_API_KEY?: string;

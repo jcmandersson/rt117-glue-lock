@@ -28,14 +28,19 @@ Repot var tomt (bara `README`, `LICENSE` och `.gitignore` från 2023) — hela s
 
 ### Vad som återstår innan det fungerar på riktigt
 
-Allt nedan är konto- och konfigurationsarbete, ingen kodning:
+Allt nedan är konto- och konfigurationsarbete, ingen kodning. Deployen är
+automatisk — det handlar om att mata in nycklar (§ [Driftsättning](#driftsättning)):
 
-1. Skapa Cloudflare-resurserna och deploya (§ [Driftsättning](#driftsättning)).
-2. Hämta en Glue-API-nyckel och peka ut rätt lås.
-3. Skapa en Google OAuth-klient.
-4. Verifiera avsändardomän hos Resend och lägga DNS-poster på `rt117.se`.
-5. Lägga in dig själv som admin och sedan resten av bröderna.
-6. Låta någon titta på GDPR-frågan (§ [Personuppgifter](#personuppgifter)).
+1. Lägg in `CLOUDFLARE_API_TOKEN` och `CLOUDFLARE_ACCOUNT_ID` som GitHub-secrets.
+   Därefter deployar varje push till `main` av sig själv.
+2. Generera `SESSION_SECRET` och `OTP_PEPPER`, och sätt `BOOTSTRAP_ADMIN_EMAILS`
+   till din adress så du blir admin.
+3. Hämta en Glue-API-nyckel och peka ut rätt lås.
+4. Skapa en Google OAuth-klient.
+5. Verifiera avsändardomän hos Resend och lägg DNS-poster på `rt117.se`.
+6. Peka `las.rt117.se` mot Workern.
+7. Lägg in resten av bröderna via adminsidan.
+8. Låt någon titta på GDPR-frågan (§ [Personuppgifter](#personuppgifter)).
 
 ## Så fungerar det
 
@@ -111,14 +116,16 @@ de ändras då och då — men i grova drag:
 npm install
 cp .dev.vars.example .dev.vars
 npm run secrets:gen          # klistra in värdena i .dev.vars
-npx wrangler d1 create rt117-glue-lock
-# lägg in database_id från utskriften i wrangler.jsonc
-npm run db:migrate:local
+npm run db:migrate:local     # lokal SQLite, ingen Cloudflare-inloggning behövs
 npm run dev                  # Vite på :5173, Worker på :8787
 ```
 
-Öppna http://localhost:5173. Sätt din egen adress i `BOOTSTRAP_ADMIN_EMAILS`
-(i `wrangler.jsonc`) så läggs du in som admin första gången du loggar in.
+Öppna http://localhost:5173. Sätt din egen adress i `BOOTSTRAP_ADMIN_EMAILS` i
+`.dev.vars` så läggs du in som admin första gången du loggar in.
+
+Lokalt behövs ingen riktig D1-databas — `--local` använder en SQLite-fil, och
+platshållaren för `database_id` i `wrangler.jsonc` duger. Den riktiga databasen
+skapas automatiskt vid första deployen.
 
 Utan `RESEND_API_KEY` skickas inga mejl — **engångskoden skrivs i stället ut i
 `wrangler dev`-loggen**, vilket är det bekväma sättet att testa lokalt. Utan
@@ -131,90 +138,122 @@ npm run typecheck
 
 ## Driftsättning
 
-### 1. Databas och deploy
+Deployen är automatisk: **push till `main` bygger, testar och deployar.**
+Workflowen ligger i [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml).
+Pull requests kör bara testerna, inget deployas.
+
+Varje körning gör detta i ordning:
+
+1. Typkontroll och tester — misslyckas de deployas ingenting
+2. Skapar D1-databasen om den inte finns, och pekar konfigurationen på den
+3. Kör databasmigrationer
+4. Bygger frontenden och deployar Workern
+5. Synkar hemligheterna från GitHub till Workern
+6. Kontrollerar att sidan svarar (fäller inte deployen om DNS inte är klart)
+
+Du behöver alltså aldrig köra `wrangler` lokalt. Databasens id slås upp vid
+deploy, så det behöver inte checkas in.
+
+### Steg 1: Ge GitHub tillgång till Cloudflare
+
+Detta är det enda som måste göras utanför GitHub. I Cloudflare-dashboarden under
+**My Profile → API Tokens → Create Token**: använd mallen **Edit Cloudflare
+Workers** och lägg till behörigheten **Account → D1 → Edit**. Ditt konto-id står
+på översiktssidan för kontot.
+
+Lägg sedan in båda i GitHub under **Settings → Secrets and variables → Actions →
+New repository secret**:
+
+| Secret | Värde |
+| --- | --- |
+| `CLOUDFLARE_API_TOKEN` | Token du just skapade |
+| `CLOUDFLARE_ACCOUNT_ID` | Ditt Cloudflare-konto-id |
+
+### Steg 2: Mata in nycklarna
+
+Alla i samma GitHub-vy. Tomma eller saknade hoppas över, så du kan lägga till
+dem en och en — inget raderas för att det inte är ifyllt ännu.
+
+| Secret | Krävs | Var du får det |
+| --- | --- | --- |
+| `SESSION_SECRET` | **Ja** | `npm run secrets:gen` |
+| `OTP_PEPPER` | **Ja** | `npm run secrets:gen` |
+| `BOOTSTRAP_ADMIN_EMAILS` | **Ja, till att börja med** | Din egen adress. Flera går att komma, kommaseparerat |
+| `RESEND_API_KEY` | För engångskoder | [resend.com](https://resend.com) → API Keys |
+| `GOOGLE_CLIENT_ID` | För Google-inloggning | Google Cloud Console (se nedan) |
+| `GOOGLE_CLIENT_SECRET` | För Google-inloggning | Samma ställe |
+| `GLUE_API_KEY` | För att öppna på riktigt | `npm run glue:api-key` |
+| `GLUE_LOCK_ID` | Bara om ni har flera lås | `npm run glue:locks` |
+| `TURNSTILE_SITE_KEY` | Nej | Cloudflare → Turnstile |
+| `TURNSTILE_SECRET_KEY` | Nej | Samma ställe |
+| `TABLERWORLD_TOKEN` | Nej | OVF/RTI, se [tabler.world](#tablerworld) |
+| `TABLERWORLD_CLUB_IDS` | Nej | Klubb-id för RT117 och RT36 |
+| `TABLERWORLD_MEMBERS_PATH` | Nej | Bara om standardsökvägen är fel |
+
+Utan `SESSION_SECRET` och `OTP_PEPPER` avbryts deployen med ett tydligt fel —
+ingen skulle kunna logga in ändå. Saknas `GLUE_API_KEY` deployas systemet i
+**simulerat läge**: allt fungerar utom att ingen dörr faktiskt öppnas. Det är
+avsiktligt, så du kan testa hela flödet innan låset är inkopplat.
+
+`BOOTSTRAP_ADMIN_EMAILS` är det som gör att du kommer in i ett tomt system:
+adresser i listan läggs in och befordras till admin vid inloggning. Töm gärna
+den när bröderna är inlagda.
+
+De två skripten går att köra lokalt också, om du vill:
 
 ```bash
-npx wrangler d1 create rt117-glue-lock     # lägg in database_id i wrangler.jsonc
-npm run db:migrate                          # kör schemat i produktion
-npm run deploy
+npm run cf:ensure-d1        # skapar/hittar databasen
+npm run cf:sync-secrets     # synkar hemligheter från din miljö
 ```
 
-### 2. Hemligheter
+### Steg 3: Nycklar som kräver adressen
 
-```bash
-npm run secrets:gen                         # generera de två första
-npx wrangler secret put SESSION_SECRET
-npx wrangler secret put OTP_PEPPER
-```
+Två av integrationerna behöver veta var sidan ligger, så de görs enklast efter
+första deployen.
 
-Byter du `SESSION_SECRET` loggas alla ut. Byter du `OTP_PEPPER` slutar redan
-utskickade koder att fungera. Inget värre än så.
-
-### 3. Glue
-
-```bash
-npm run glue:api-key                        # frågar efter Glue-inloggning, skriver ut en nyckel
-npx wrangler secret put GLUE_API_KEY
-
-GLUE_API_KEY='<nyckeln>' npm run glue:locks # visar låsen och deras id
-npx wrangler secret put GLUE_LOCK_ID        # behövs bara om ni har flera lås
-```
-
-Sätt sedan `GLUE_MOCK` till `"0"` i `wrangler.jsonc` och deploya om.
-Lösenordet till Glue-kontot skickas bara till Glue och sparas ingenstans.
-
-### 4. Google-inloggning
-
-I [Google Cloud Console](https://console.cloud.google.com/apis/credentials): skapa
-en OAuth-klient av typen **Web application**.
+**Google.** I [Google Cloud Console](https://console.cloud.google.com/apis/credentials),
+skapa en OAuth-klient av typen **Web application**:
 
 - Authorized redirect URI: `https://las.rt117.se/auth/google/callback`
-- Lägg även till `http://localhost:5173/auth/google/callback` för lokal utveckling.
+- Lägg även till `http://localhost:5173/auth/google/callback` för lokal utveckling
+
+**E-post.** Verifiera `rt117.se` som avsändardomän hos
+[Resend](https://resend.com/domains). Resend visar exakt vilka DNS-poster som ska
+in — normalt en DKIM-post (`TXT`), en post för returadressen och gärna SPF.
+**Kopiera värdena från Resends gränssnitt**, de är unika per konto.
+
+### Steg 4: Peka adressen mot Workern
+
+I Cloudflare-dashboarden: **Workers & Pages → rt117-glue-lock → Settings →
+Domains & Routes → Add custom domain**, och ange `las.rt117.se`. Ligger
+`rt117.se` inte redan i Cloudflare behöver zonen flyttas dit.
+
+Uppdatera sedan `APP_URL` i `wrangler.jsonc` om adressen blev en annan än
+`https://las.rt117.se` och committa — den styr Googles redirect-URI, och stämmer
+den inte slutar återhoppet fungera.
+
+### Inställningar som inte är hemliga
+
+Dessa bor i `wrangler.jsonc` och ändras genom att committa:
+
+| Var | Betydelse |
+| --- | --- |
+| `APP_URL` | Sidans adress. Måste matcha Googles redirect-URI |
+| `APP_NAME` | Visas i gränssnittet och i mejlen |
+| `MAIL_FROM` | Avsändare, måste ligga på den verifierade domänen |
+| `GLUE_MOCK` | `"1"` tvingar simulerat läge även med API-nyckel |
+| `MEMBER_SOURCE` | `"admin"` eller `"tablerworld"` |
+
+### Manuell deploy
+
+Om du någon gång vill gå förbi GitHub:
 
 ```bash
-npx wrangler secret put GOOGLE_CLIENT_ID
-npx wrangler secret put GOOGLE_CLIENT_SECRET
+npx wrangler login
+npm run cf:ensure-d1
+npm run db:migrate
+npm run deploy
 ```
-
-Utan dessa döljs Google-knappen automatiskt och bara engångskoder används.
-
-### 5. E-post och DNS
-
-Verifiera `rt117.se` som avsändardomän hos [Resend](https://resend.com/domains).
-Resend visar exakt vilka poster som ska in — normalt en DKIM-post (`TXT`), en
-`MX`/`TXT` för returadressen, och gärna en SPF-post. **Kopiera värdena från
-Resends gränssnitt**, de är unika per konto.
-
-```bash
-npx wrangler secret put RESEND_API_KEY
-```
-
-Peka sedan `las.rt117.se` mot Workern: i Cloudflare-dashboarden under Workers &
-Pages → din Worker → Settings → Domains & Routes → Add custom domain. Ligger
-`rt117.se` inte redan i Cloudflare behöver zonen flyttas dit, eller så använder du
-en adress under en domän som gör det.
-
-Stämmer `APP_URL` i `wrangler.jsonc` inte med den riktiga adressen slutar Googles
-återhopp att fungera — den styr redirect-URI:n.
-
-### 6. Botskydd (valfritt)
-
-Skapa en Turnstile-widget i Cloudflare-dashboarden och sätt:
-
-```bash
-npx wrangler secret put TURNSTILE_SITE_KEY
-npx wrangler secret put TURNSTILE_SECRET_KEY
-```
-
-Utan dem är botskyddet av, men hastighetsbegränsningen gäller alltid.
-
-### 7. Första inloggningen
-
-Sätt `BOOTSTRAP_ADMIN_EMAILS` i `wrangler.jsonc` till din adress (flera går att
-komma i en kommaseparerad lista) och deploya. Adresser i listan läggs in och
-befordras till admin automatiskt vid inloggning — det är så du kommer in i ett
-tomt system. Lägg sedan in resten av bröderna via adminsidan och töm gärna
-variabeln när ni är igång.
 
 ## Administrera medlemmar
 
@@ -318,6 +357,10 @@ standardinställning:
 | Ingen kod kommer fram | Adressen finns inte i medlemslistan (vi säger inte det i gränssnittet — kolla i admin), eller domänen är inte verifierad hos Resend |
 | "Den e-postadressen finns inte i medlemslistan" vid Google-inloggning | Google-kontots adress skiljer sig från den inlagda |
 | Allt ger 429 | Hastighetsbegränsningen slog till. Vänta, eller töm `rate_limits` i D1 |
+| Deployen stannar på "Kontrollera Cloudflare-uppgifter" | `CLOUDFLARE_API_TOKEN` eller `CLOUDFLARE_ACCOUNT_ID` saknas som GitHub-secret |
+| Deployen stannar på "Synka hemligheter" | `SESSION_SECRET` eller `OTP_PEPPER` saknas. Generera med `npm run secrets:gen` |
+| Deployen klagar på D1-behörighet | API-token saknar **Account → D1 → Edit** |
+| Sista steget blir gult | Sidan svarade inte — oftast bara att DNS inte pekar rätt än. Deployen gick ändå igenom |
 
 Loggar i realtid:
 
@@ -333,8 +376,10 @@ npx wrangler tail
 | `npm test` | Testsviten |
 | `npm run typecheck` | TypeScript |
 | `npm run build` | Bygger frontenden till `dist/client` |
-| `npm run deploy` | Bygger och deployar |
+| `npm run deploy` | Bygger och deployar manuellt (normalt sköter GitHub det) |
 | `npm run db:migrate` / `:local` | Kör D1-migrationer |
+| `npm run cf:ensure-d1` | Skapar/hittar D1-databasen och pekar konfigurationen på den |
+| `npm run cf:sync-secrets` | Synkar hemligheter från miljön till Workern |
 | `npm run glue:api-key` | Hämtar en Glue-API-nyckel |
 | `npm run glue:locks` | Listar låsen på Glue-kontot |
 | `npm run secrets:gen` | Slumpar `SESSION_SECRET` och `OTP_PEPPER` |

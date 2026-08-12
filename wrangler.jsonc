@@ -32,13 +32,14 @@
     "crons": ["17 3 * * *"]
   },
 
-  // Publika, icke-hemliga inställningar. Hemligheter sätts med `wrangler secret put`.
+  // Publika, icke-hemliga inställningar. Ändra dessa här och committa.
+  // Hemligheter (inklusive BOOTSTRAP_ADMIN_EMAILS) sätts som GitHub-secrets och
+  // synkas till Workern av .github/workflows/deploy.yml — se README.
   "vars": {
     "APP_URL": "https://las.rt117.se",
     "APP_NAME": "RT117/RT36 Lokalen",
     "MAIL_FROM": "RT117 Lokalen <no-reply@rt117.se>",
     "GLUE_MOCK": "0",
-    "MEMBER_SOURCE": "admin",
-    "BOOTSTRAP_ADMIN_EMAILS": ""
+    "MEMBER_SOURCE": "admin"
   }
 }

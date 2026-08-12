@@ -15,6 +15,8 @@
     "deploy": "npm run build && wrangler deploy",
     "db:migrate:local": "wrangler d1 migrations apply rt117-glue-lock --local",
     "db:migrate": "wrangler d1 migrations apply rt117-glue-lock --remote",
+    "cf:ensure-d1": "node scripts/ensure-d1.mjs",
+    "cf:sync-secrets": "node scripts/sync-secrets.mjs",
     "glue:api-key": "node scripts/glue-api-key.mjs",
     "glue:locks": "node scripts/glue-locks.mjs",
     "secrets:gen": "node scripts/gen-secret.mjs"

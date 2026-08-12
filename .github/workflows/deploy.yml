@@ -1,0 +1,103 @@
+name: Deploy
+
+# Push till main deployar. Pull requests kör bara testerna.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Två deployer samtidigt skulle kunna köra migrationer om varandra.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tester
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  deploy:
+    name: Deploya till Cloudflare
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Kontrollera Cloudflare-uppgifter
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN och CLOUDFLARE_ACCOUNT_ID måste finnas som GitHub-secrets. Se README."
+            exit 1
+          fi
+
+      # Slår upp databasens id, skapar databasen om den inte finns, och pekar
+      # wrangler.jsonc på den. Ändringen committas inte.
+      - name: Säkerställ D1-databasen
+        run: node scripts/ensure-d1.mjs
+
+      - name: Kör databasmigrationer
+        run: npx wrangler d1 migrations apply rt117-glue-lock --remote
+
+      - name: Bygg frontenden
+        run: npm run build
+
+      # Deployen först: `wrangler secret put` kräver att Workern finns, vilket
+      # den inte gör vid allra första körningen.
+      - name: Deploya Workern
+        run: npx wrangler deploy
+
+      - name: Synka hemligheter
+        env:
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          OTP_PEPPER: ${{ secrets.OTP_PEPPER }}
+          BOOTSTRAP_ADMIN_EMAILS: ${{ secrets.BOOTSTRAP_ADMIN_EMAILS }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          GLUE_API_KEY: ${{ secrets.GLUE_API_KEY }}
+          GLUE_LOCK_ID: ${{ secrets.GLUE_LOCK_ID }}
+          TURNSTILE_SITE_KEY: ${{ secrets.TURNSTILE_SITE_KEY }}
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+          TABLERWORLD_TOKEN: ${{ secrets.TABLERWORLD_TOKEN }}
+          TABLERWORLD_CLUB_IDS: ${{ secrets.TABLERWORLD_CLUB_IDS }}
+          TABLERWORLD_BASE_URL: ${{ secrets.TABLERWORLD_BASE_URL }}
+          TABLERWORLD_AUTH_SCHEME: ${{ secrets.TABLERWORLD_AUTH_SCHEME }}
+          TABLERWORLD_MEMBERS_PATH: ${{ secrets.TABLERWORLD_MEMBERS_PATH }}
+        run: node scripts/sync-secrets.mjs
+
+      # Enkel kontroll att sidan svarar. Fäller inte deployen — första gången
+      # finns ingen DNS ännu, och då är ett rött kryss bara vilseledande.
+      - name: Kontrollera att sidan svarar
+        continue-on-error: true
+        run: |
+          URL=$(node -e "const c=require('fs').readFileSync('wrangler.jsonc','utf8');const m=c.match(/\"APP_URL\"\s*:\s*\"([^\"]+)\"/);process.stdout.write(m?m[1]:'')")
+          if [ -z "$URL" ]; then echo "Hittade ingen APP_URL i wrangler.jsonc."; exit 1; fi
+          echo "Kontrollerar $URL/api/config"
+          curl -fsS --max-time 20 "$URL/api/config" | head -c 300

@@ -9,6 +9,10 @@ OTP_PEPPER="byt-ut-mig-också"
 # Detta överskuggar APP_URL från wrangler.jsonc och styr Googles redirect-URI.
 APP_URL="http://localhost:5173"
 
+# Din adress läggs in och befordras till admin vid inloggning. Så kommer du in i
+# ett tomt system. Flera går att komma, kommaseparerat.
+BOOTSTRAP_ADMIN_EMAILS="din.adress@example.se"
+
 # Google-inloggning. Skapa en OAuth-klient (typ "Web application") i Google Cloud Console
 # och lägg till http://localhost:5173/auth/google/callback som Authorized redirect URI.
 # Utan dessa döljs Google-knappen och bara engångskod via e-post fungerar.
