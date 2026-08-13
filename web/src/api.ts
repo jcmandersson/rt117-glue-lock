@@ -80,6 +80,21 @@ export interface ApplyMe {
 }
 
 export type OperationStatus = "pending" | "completed" | "timeout" | "failed";
+export type OperationType = "lock" | "unlock";
+
+export interface OperationState {
+  operationId: string;
+  type: OperationType;
+  status: OperationStatus;
+  reason: string | null;
+}
+
+export interface LockActivityEvent {
+  type: OperationType;
+  at: number;
+  name: string;
+  club: string | null;
+}
 
 export interface LockStatus {
   unlockEnabled: boolean;
@@ -154,9 +169,10 @@ export const api = {
     post<{ ok: true; pending: PendingApplication }>("/api/apply", input),
 
   lockStatus: () => get<LockStatus>("/api/lock/status"),
-  unlock: () => post<{ operationId: string; status: OperationStatus; reason: string | null }>("/api/unlock"),
-  operation: (id: string) =>
-    get<{ operationId: string; status: OperationStatus; reason: string | null }>(`/api/unlock/${id}`),
+  lockActivity: () => get<{ events: LockActivityEvent[] }>("/api/lock/activity"),
+  unlock: () => post<OperationState>("/api/unlock"),
+  lock: () => post<OperationState>("/api/lock"),
+  operation: (id: string) => get<OperationState>(`/api/unlock/${id}`),
 
   adminMembers: () => get<{ members: AdminMember[] }>("/api/admin/members"),
   adminCreateMember: (input: Record<string, unknown>) =>

@@ -37,6 +37,22 @@ export function dateInputToTs(value: string, edge: "start" | "end"): number | nu
   return Math.floor(date.getTime() / 1000);
 }
 
+/** Relativ tid i löptext: "just nu", "för 5 min sedan", "igår". Äldre än en vecka blir datum. */
+export function formatRelative(ts: number): string {
+  const diff = Math.floor(Date.now() / 1000) - ts;
+  if (diff < 60) return "just nu";
+  if (diff < 3600) return `för ${Math.floor(diff / 60)} min sedan`;
+  if (diff < 86400) {
+    const hours = Math.floor(diff / 3600);
+    return hours === 1 ? "för en timme sedan" : `för ${hours} timmar sedan`;
+  }
+  if (diff < 7 * 86400) {
+    const days = Math.floor(diff / 86400);
+    return days === 1 ? "igår" : `för ${days} dagar sedan`;
+  }
+  return formatDate(ts);
+}
+
 /** Beskriver ett giltighetsfönster i löptext, eller null om inget är satt. */
 export function formatWindow(from: number | null, until: number | null): string | null {
   if (from && until) return `${formatDate(from)} till ${formatDate(until)}`;

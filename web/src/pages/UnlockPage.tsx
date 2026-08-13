@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, ApiError, type LockStatus, type Me } from "../api";
+import {
+  api,
+  ApiError,
+  type LockActivityEvent,
+  type LockStatus,
+  type Me,
+  type OperationType,
+} from "../api";
 import { navigate } from "../router";
-import { formatDate, formatWindow } from "../dates";
+import { formatDate, formatDateTime, formatRelative, formatWindow } from "../dates";
 
 type Phase = "idle" | "working" | "done" | "error";
 
@@ -22,6 +29,26 @@ function connectionLabel(status: string): { text: string; className: string } {
   }
 }
 
+/**
+ * Tolkar Glues senaste låshändelse till "Låst" eller "Upplåst". Händelsetyperna
+ * heter saker som localLock, remoteUnlock och pressAndGo, så vi tittar bara på
+ * om ordet unlock finns med. Läget är en indikation, inte en garanti: låset kan
+ * ha vridits manuellt utan att det syns här.
+ */
+function lastEventLabel(event: { eventType: string; eventTime: string } | null): {
+  text: string;
+  exact: string;
+} | null {
+  if (!event) return null;
+  const unlocked = /unlock|pressandgo/i.test(event.eventType);
+  const ts = Math.floor(new Date(event.eventTime).getTime() / 1000);
+  if (!Number.isFinite(ts)) return null;
+  return {
+    text: `Troligen ${unlocked ? "upplåst" : "låst"} · ${formatRelative(ts)}`,
+    exact: formatDateTime(ts),
+  };
+}
+
 interface Props {
   me: Me;
   onSignedOut: () => Promise<void>;
@@ -29,7 +56,11 @@ interface Props {
 
 export function UnlockPage({ me, onSignedOut }: Props) {
   const [status, setStatus] = useState<LockStatus | null>(null);
-  const [phase, setPhase] = useState<Phase>("idle");
+  const [activity, setActivity] = useState<LockActivityEvent[] | null>(null);
+  const [action, setAction] = useState<{ type: OperationType; phase: Phase }>({
+    type: "unlock",
+    phase: "idle",
+  });
   const [message, setMessage] = useState<string | null>(null);
   const cancelled = useRef(false);
 
@@ -42,8 +73,13 @@ export function UnlockPage({ me, onSignedOut }: Props) {
 
   const loadStatus = useCallback(async () => {
     try {
-      const result = await api.lockStatus();
-      if (!cancelled.current) setStatus(result);
+      const [statusResult, activityResult] = await Promise.allSettled([
+        api.lockStatus(),
+        api.lockActivity(),
+      ]);
+      if (cancelled.current) return;
+      if (statusResult.status === "fulfilled") setStatus(statusResult.value);
+      if (activityResult.status === "fulfilled") setActivity(activityResult.value.events);
     } catch (error) {
       console.error(error);
     }
@@ -53,12 +89,12 @@ export function UnlockPage({ me, onSignedOut }: Props) {
     void loadStatus();
   }, [loadStatus]);
 
-  async function unlock() {
-    setPhase("working");
+  async function run(type: OperationType) {
+    setAction({ type, phase: "working" });
     setMessage(null);
 
     try {
-      const started = await api.unlock();
+      const started = type === "unlock" ? await api.unlock() : await api.lock();
       let current = started.status;
 
       for (let attempt = 0; attempt < MAX_POLLS && current === "pending"; attempt++) {
@@ -72,28 +108,30 @@ export function UnlockPage({ me, onSignedOut }: Props) {
       if (cancelled.current) return;
 
       if (current === "completed") {
-        setPhase("done");
+        setAction({ type, phase: "done" });
         setMessage(null);
         // Tillbaka till utgångsläget så nästa person kan trycka.
         setTimeout(() => {
-          if (!cancelled.current) setPhase("idle");
+          if (!cancelled.current) setAction({ type, phase: "idle" });
         }, 6000);
       } else if (current === "pending") {
-        setPhase("error");
+        setAction({ type, phase: "error" });
         setMessage("Låset svarade inte i tid. Står hubben på och har den nät?");
       } else {
-        setPhase("error");
+        setAction({ type, phase: "error" });
         setMessage(
           current === "timeout"
-            ? "Låset svarade inte i tid. Prova igen, eller lås upp manuellt."
-            : "Låset kunde inte låsas upp. Prova igen.",
+            ? "Låset svarade inte i tid. Prova igen, eller använd nyckeln."
+            : type === "unlock"
+              ? "Låset kunde inte låsas upp. Prova igen."
+              : "Dörren kunde inte låsas. Prova igen, eller kontrollera på plats.",
         );
       }
 
       void loadStatus();
     } catch (error) {
       if (cancelled.current) return;
-      setPhase("error");
+      setAction({ type, phase: "error" });
       setMessage(error instanceof ApiError ? error.message : "Något gick fel. Försök igen.");
     }
   }
@@ -105,9 +143,10 @@ export function UnlockPage({ me, onSignedOut }: Props) {
   }
 
   const lock = status?.lock;
+  const lastEvent = lastEventLabel(lock?.lastLockEvent ?? null);
 
   // Medlemmar med start- och slutdatum kan logga in när som helst men bara
-  // låsa upp inom sitt fönster. Servern kontrollerar också, det här är bara UI.
+  // styra låset inom sitt fönster. Servern kontrollerar också, det här är bara UI.
   const nowSec = Math.floor(Date.now() / 1000);
   const { validFrom, validUntil } = me.member;
   const beforeStart = validFrom !== null && nowSec < validFrom;
@@ -115,7 +154,10 @@ export function UnlockPage({ me, onSignedOut }: Props) {
   const outsideWindow = beforeStart || afterEnd;
   const window = formatWindow(validFrom, validUntil);
 
-  const disabled = phase === "working" || status?.unlockEnabled === false || outsideWindow;
+  const busy = action.phase === "working";
+  const disabled = busy || status?.unlockEnabled === false || outsideWindow;
+  const unlockPhase = action.type === "unlock" ? action.phase : "idle";
+  const lockPhase = action.type === "lock" ? action.phase : "idle";
 
   return (
     <div className="app">
@@ -132,21 +174,21 @@ export function UnlockPage({ me, onSignedOut }: Props) {
 
       {status?.mock && (
         <div className="notice notice--warn">
-          Simulerat läge: inget riktigt lås öppnas. Sätt <span className="mono">GLUE_API_KEY</span> och{" "}
+          Simulerat läge: inget riktigt lås styrs. Sätt <span className="mono">GLUE_API_KEY</span> och{" "}
           <span className="mono">GLUE_MOCK=0</span> för att koppla in låset.
         </div>
       )}
 
       {status?.unlockEnabled === false && (
         <div className="notice notice--error">
-          Upplåsning är avstängd av en admin just nu.
+          Fjärrstyrningen av låset är avstängd av en admin just nu.
         </div>
       )}
 
       {beforeStart && (
         <div className="notice notice--warn">
-          Din åtkomst börjar gälla {formatDate(validFrom!)}. Fram till dess går det inte att låsa
-          upp.
+          Din åtkomst börjar gälla {formatDate(validFrom!)}. Fram till dess går låset inte att
+          styra härifrån.
         </div>
       )}
 
@@ -161,23 +203,23 @@ export function UnlockPage({ me, onSignedOut }: Props) {
 
       <button
         className={
-          phase === "done"
+          unlockPhase === "done"
             ? "unlock unlock--done"
-            : phase === "error"
+            : unlockPhase === "error"
               ? "unlock unlock--error"
               : "unlock"
         }
-        onClick={unlock}
+        onClick={() => run("unlock")}
         disabled={disabled}
       >
-        {phase === "working" && (
+        {unlockPhase === "working" && (
           <>
             <span className="spinner" aria-hidden="true" />
             <span>Låser upp…</span>
             <span className="unlock__sub">Håll i dörren</span>
           </>
         )}
-        {phase === "idle" && (
+        {unlockPhase === "idle" && (
           <>
             <span className="unlock__icon" aria-hidden="true">
               🔓
@@ -186,7 +228,7 @@ export function UnlockPage({ me, onSignedOut }: Props) {
             <span className="unlock__sub">Tryck en gång</span>
           </>
         )}
-        {phase === "done" && (
+        {unlockPhase === "done" && (
           <>
             <span className="unlock__icon" aria-hidden="true">
               ✓
@@ -195,7 +237,7 @@ export function UnlockPage({ me, onSignedOut }: Props) {
             <span className="unlock__sub">Välkommen in</span>
           </>
         )}
-        {phase === "error" && (
+        {unlockPhase === "error" && (
           <>
             <span className="unlock__icon" aria-hidden="true">
               !
@@ -206,8 +248,32 @@ export function UnlockPage({ me, onSignedOut }: Props) {
         )}
       </button>
 
+      <button
+        className={
+          lockPhase === "done"
+            ? "btn btn--lock btn--lock-done"
+            : lockPhase === "error"
+              ? "btn btn--lock btn--lock-error"
+              : "btn btn--secondary btn--lock"
+        }
+        onClick={() => run("lock")}
+        disabled={disabled}
+      >
+        {lockPhase === "working" ? (
+          <>
+            <span className="spinner" aria-hidden="true" /> Låser…
+          </>
+        ) : lockPhase === "done" ? (
+          <>✓ Dörren är låst</>
+        ) : lockPhase === "error" ? (
+          <>! Gick inte, tryck för nytt försök</>
+        ) : (
+          <>🔒 Lås dörren</>
+        )}
+      </button>
+
       {message && (
-        <div className={`notice ${phase === "error" ? "notice--error" : "notice--info"}`} style={{ marginTop: 16 }}>
+        <div className={`notice ${action.phase === "error" ? "notice--error" : "notice--info"}`} style={{ marginTop: 16 }}>
           {message}
         </div>
       )}
@@ -216,6 +282,11 @@ export function UnlockPage({ me, onSignedOut }: Props) {
         <div className="status-grid">
           {lock ? (
             <>
+              {lastEvent && (
+                <span className="pill pill--accent" title={lastEvent.exact}>
+                  {lastEvent.text}
+                </span>
+              )}
               <span className={connectionLabel(lock.connectionStatus).className}>
                 {connectionLabel(lock.connectionStatus).text}
               </span>
@@ -236,6 +307,23 @@ export function UnlockPage({ me, onSignedOut }: Props) {
           )}
           {window && !outsideWindow && <span className="pill">Åtkomst {window}</span>}
         </div>
+
+        {activity && activity.length > 0 && (
+          <ul className="activity">
+            {activity.map((event, index) => (
+              <li key={`${event.at}-${index}`} className="activity__row">
+                <span>
+                  {event.name}
+                  {event.club ? `, ${event.club}` : ""}{" "}
+                  {event.type === "unlock" ? "låste upp" : "låste"}
+                </span>
+                <span className="activity__time" title={formatDateTime(event.at)}>
+                  {formatRelative(event.at)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="btn-row">

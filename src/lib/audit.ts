@@ -8,6 +8,8 @@ export type AuditAction =
   | "logout"
   | "unlock.request"
   | "unlock.result"
+  | "lock.request"
+  | "lock.result"
   | "apply.submit"
   | "admin.member.create"
   | "admin.member.update"

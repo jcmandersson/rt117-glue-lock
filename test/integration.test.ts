@@ -355,6 +355,68 @@ describe("upplåsning", () => {
     );
   });
 
+  it("låser dörren och loggar det som lock.request", async () => {
+    const { member, cookie } = await signIn({ email: "lasare@rt117.se" });
+
+    const started = await jsonRequest("/api/lock", { method: "POST", cookie });
+    expect(started.status).toBe(200);
+
+    const body = (await started.json()) as { operationId: string; type: string; status: string };
+    expect(body.type).toBe("lock");
+    expect(body.status).toBe("pending");
+
+    await vi.waitFor(
+      async () => {
+        const polled = await jsonRequest(`/api/unlock/${body.operationId}`, { cookie });
+        expect((await polled.json() as { status: string }).status).toBe("completed");
+      },
+      { timeout: 8000, interval: 400 },
+    );
+
+    const row = await env.DB
+      .prepare(`SELECT action, result FROM audit_log WHERE member_id = ? AND action = 'lock.request'`)
+      .bind(member.id)
+      .first<{ action: string; result: string }>();
+    expect(row?.result).toBe("ok");
+  });
+
+  it("visar de senaste händelserna med namn och klubb", async () => {
+    const { member, cookie } = await signIn({ email: "aktiv@rt117.se" });
+    const ts = now();
+
+    // Fyra avslutade operationer; bara de tre senaste ska visas.
+    for (let index = 0; index < 4; index++) {
+      await env.DB
+        .prepare(
+          `INSERT INTO unlock_operations
+             (id, glue_operation_id, lock_id, member_id, type, status, created_at, updated_at)
+           VALUES (?, ?, 'mock-lock', ?, ?, 'completed', ?, ?)`,
+        )
+        .bind(
+          `op-${index}`,
+          `glue-${index}`,
+          member.id,
+          index % 2 === 0 ? "unlock" : "lock",
+          ts - 1000 + index,
+          ts - 1000 + index,
+        )
+        .run();
+    }
+
+    const response = await jsonRequest("/api/lock/activity", { cookie });
+    expect(response.status).toBe(200);
+
+    const { events } = (await response.json()) as {
+      events: { type: string; at: number; name: string; club: string | null }[];
+    };
+    expect(events).toHaveLength(3);
+    // Nyast först.
+    expect(events[0]!.at).toBeGreaterThanOrEqual(events[1]!.at);
+    expect(events[0]!.name).toBe("Testperson");
+    expect(events[0]!.club).toBe("RT117");
+    expect(events[0]!.type).toBe("lock");
+  });
+
   it("visar låsets status", async () => {
     const { cookie } = await signIn({ email: "kollare@rt117.se" });
     const response = await jsonRequest("/api/lock/status", { cookie });

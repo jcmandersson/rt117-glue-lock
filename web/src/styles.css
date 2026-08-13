@@ -266,6 +266,49 @@ body {
   opacity: 0.9;
 }
 
+/* --- Låsknappen: sekundär bredvid den stora upplåsningen --- */
+
+.btn--lock {
+  margin-top: 12px;
+  padding: 15px 16px;
+}
+
+.btn--lock-done {
+  background: var(--ok);
+  border-color: var(--ok);
+  color: #04140b;
+}
+
+.btn--lock-error {
+  background: var(--error);
+  border-color: var(--error);
+  color: #1b0508;
+}
+
+/* --- Senaste händelser på upplåsningssidan --- */
+
+.activity {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--border);
+}
+
+.activity__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 14px;
+  padding: 4px 0;
+}
+
+.activity__time {
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
 /* --- Formulär --- */
 
 label {
