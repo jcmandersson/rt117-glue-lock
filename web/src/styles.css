@@ -309,6 +309,13 @@ body {
   white-space: nowrap;
 }
 
+.tip {
+  margin: 10px 4px 0;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+}
+
 /* --- Formulär --- */
 
 label {

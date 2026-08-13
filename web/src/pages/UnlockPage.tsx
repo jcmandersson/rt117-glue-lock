@@ -32,15 +32,16 @@ function connectionLabel(status: string): { text: string; className: string } {
 /**
  * Tolkar Glues senaste låshändelse till "Låst" eller "Upplåst". Händelsetyperna
  * heter saker som localLock, remoteUnlock och pressAndGo, så vi tittar bara på
- * om ordet unlock finns med. Läget är en indikation, inte en garanti: låset kan
- * ha vridits manuellt utan att det syns här.
+ * om ordet unlock finns med. pressAndGo räknas som låst: det är händelsen när
+ * låset låst sig självt efter ett tryck på vredet. Läget är en indikation,
+ * inte en garanti: låset kan ha vridits manuellt utan att det syns här.
  */
 function lastEventLabel(event: { eventType: string; eventTime: string } | null): {
   text: string;
   exact: string;
 } | null {
   if (!event) return null;
-  const unlocked = /unlock|pressandgo/i.test(event.eventType);
+  const unlocked = /unlock/i.test(event.eventType);
   const ts = Math.floor(new Date(event.eventTime).getTime() / 1000);
   if (!Number.isFinite(ts)) return null;
   return {
@@ -271,6 +272,11 @@ export function UnlockPage({ me, onSignedOut }: Props) {
           <>🔒 Lås dörren</>
         )}
       </button>
+
+      <p className="tip">
+        Tips: när du går kan du trycka på själva låsvredet (Press &amp; Go) så låser dörren sig
+        själv efter några sekunder.
+      </p>
 
       {message && (
         <div className={`notice ${action.phase === "error" ? "notice--error" : "notice--info"}`} style={{ marginTop: 16 }}>
